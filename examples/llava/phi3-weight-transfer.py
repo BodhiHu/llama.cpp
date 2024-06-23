@@ -12,7 +12,9 @@ def main(args):
     # https://stackoverflow.com/questions/67689219/copy-one-layers-weights-from-one-huggingface-bert-model-to-another
 
     phi3_vision = AutoModelForCausalLM.from_pretrained(args.phi3v_base_path,
-                                                       device_map="auto",
+                                                    #    device_map="auto",
+                                                       device_map="mps:0",
+                                                    #    device=0,
                                                        trust_remote_code=True,
                                                        torch_dtype=torch.float16,
                                                        _attn_implementation='eager')
@@ -20,7 +22,9 @@ def main(args):
     print("PHI3 VISION LOADED IN MEMORY")
 
     phi3_base = AutoModelForCausalLM.from_pretrained(args.phi3_instruct_base_path,
-                                                     device_map="auto",
+                                                    #  device_map="auto",
+                                                    device_map="mps:0",
+                                                    #  device=0,
                                                      trust_remote_code=True,
                                                      torch_dtype=torch.float16,
                                                      _attn_implementation='eager')
@@ -30,23 +34,37 @@ def main(args):
     phi3_vision_layers = dict(phi3_vision.named_parameters())
     phi3_base_layers = dict(phi3_base.named_parameters())
 
-    parts = list(set(phi3_vision_layers.keys()) & set(phi3_base_layers.keys()))
-
-    print("----------------------------------------------------")
+    print("<---------------------------------------------------->")
     print("before transfer")
-    print(dict(phi3_vision.named_parameters())["model.layers.19.mlp.gate_up_proj.weight"]
-          == dict(phi3_base.named_parameters())["model.layers.19.mlp.gate_up_proj.weight"])
-    print("----------------------------------------------------")
+    # print(phi3_vision_layers)
+    print("phi3_vision_layers[\"model.layers.19.mlp.gate_up_proj.weight\"] =")
+    print(phi3_vision_layers["model.layers.19.mlp.gate_up_proj.weight"])
+    print("phi3_base_layers[\"model.layers.19.mlp.gate_up_proj.weight\"] =")
+    print(phi3_base_layers["model.layers.19.mlp.gate_up_proj.weight"])
+    # print(phi3_vision_layers["model.layers.19.mlp.gate_up_proj.weight"]
+    #       == phi3_base_layers["model.layers.19.mlp.gate_up_proj.weight"])
+    print("<----------------------------------------------------/>")
 
+    print("<---------------------------------------------------->")
+    parts = list(set(phi3_vision_layers.keys()) & set(phi3_base_layers.keys()))
     for part in parts:
+        # print(f"Copy layer: {part}")
+        # print("FROM:\n", phi3_vision_layers[part].data)
+        # print("TO  :\n", phi3_base_layers[part].data)
         phi3_base_layers[part].data.copy_(phi3_vision_layers[part].data)
         # target                           # source
+        # print(f"After copy:\n", phi3_base_layers[part].data)
+    print("<----------------------------------------------------/>")
 
-    print("----------------------------------------------------")
+    print("<---------------------------------------------------->")
     print("after transfer")
-    print(dict(phi3_vision.named_parameters())["model.layers.19.mlp.gate_up_proj.weight"]
-          == dict(phi3_base.named_parameters())["model.layers.19.mlp.gate_up_proj.weight"])
-    print("----------------------------------------------------")
+    print("phi3_vision_layers[\"model.layers.19.mlp.gate_up_proj.weight\"] =")
+    print(phi3_vision_layers["model.layers.19.mlp.gate_up_proj.weight"])
+    print("phi3_base_layers[\"model.layers.19.mlp.gate_up_proj.weight\"] =")
+    print(phi3_base_layers["model.layers.19.mlp.gate_up_proj.weight"])
+    # print(phi3_vision_layers["model.layers.19.mlp.gate_up_proj.weight"]
+    #       == phi3_base_layers["model.layers.19.mlp.gate_up_proj.weight"])
+    print("<----------------------------------------------------/>")
 
     # save updated model weights
     outfile = "phi3-instruct-vision-weight-transfer.safetensors"
