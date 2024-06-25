@@ -107,6 +107,8 @@ python ./examples/convert-legacy-llama.py ../llava-v1.6-vicuna-7b/ --skip-unknow
 1) Set a working directory for PHI3V and PHI3 instruct. Clone both into this dir. (It's easiest to cd into your local hf cache and copy the models from there to here)
 
 ```console
+cd examples/llava
+
 mkdir phi3-models
 cd phi3-models
 
@@ -133,13 +135,13 @@ set `mm_projector_type` ->  `mlp_phi` in `config.json`
 
 5) Create the visual gguf model:
 ```console
-python examples/llava/convert-image-encoder-to-gguf.py -m phi3-models/Phi-3-vision-128k-instruct/vit --llava-projector phi3-models/Phi-3-vision-128k-instruct/vit/llava.projector --output-dir phi3-models/Phi-3-vision-128k-instruct/vit --clip-model-is-vision
+python convert-image-encoder-to-gguf.py -m phi3-models/Phi-3-vision-128k-instruct/vit --llava-projector phi3-models/Phi-3-vision-128k-instruct/vit/llava.projector --output-dir phi3-models/Phi-3-vision-128k-instruct/vit --clip-model-is-vision
 ```
 
 6) Extract the language-modelling  (everything except CLIP) part of PHI3V and assign the weights to a normal PHI3 model
 
 ```console
-python examples/llava/phi3-weight-transfer.py --phi3-instruct-base-path phi3-models/Phi-3-mini-128k-instruct/ --phi3v-base-path phi3-models/Phi-3-vision-128k-instruct
+python phi3-weight-transfer.py --phi3-instruct-base-path phi3-models/Phi-3-mini-128k-instruct/ --phi3v-base-path phi3-models/Phi-3-vision-128k-instruct
 ```
 
 7) Convert this to a normal gguf
@@ -150,15 +152,18 @@ python convert-hf-to-gguf.py phi3-models/Phi-3-mini-128k-instruct
 
 Then, copy the ggufs to `phi3-model/gguf`:
 ```
-mkdir -p examples/llava/phi3-models/gguf
+mkdir -p phi3-models/gguf
 cp -Rf \
-  examples/llava/phi3-models/Phi-3-mini-128k-instruct/ggml-model-f16.gguf \
-  examples/llava/phi3-models/Phi-3-vision-128k-instruct/vit \
-  examples/llava/phi3-models/gguf
+  phi3-models/Phi-3-mini-128k-instruct/ggml-model-f16.gguf \
+  phi3-models/Phi-3-vision-128k-instruct/vit \
+  phi3-models/gguf
 ```
 
 8) Invoke
 ```console
+# cd to llama.cpp root:
+cd ../../
+# run llava-cli:
 ./llava-cli -m examples/llava/phi3-models/gguf/ggml-model-f16.gguf --mmproj examples/llava/phi3-models/gguf/vit/mmproj-model-f16.gguf --image examples/llava/test/lake-and-mountain.png -c 4096 --temp .1 -p "describe this image"
 ```
 
