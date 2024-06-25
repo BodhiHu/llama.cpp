@@ -148,9 +148,18 @@ python examples/llava/phi3-weight-transfer.py --phi3-instruct-base-path phi3-mod
 python convert-hf-to-gguf.py phi3-models/Phi-3-mini-128k-instruct
 ```
 
+Then, copy the ggufs to `phi3-model/gguf`:
+```
+mkdir -p examples/llava/phi3-models/gguf
+cp -Rf \
+  examples/llava/phi3-models/Phi-3-mini-128k-instruct/ggml-model-f16.gguf \
+  examples/llava/phi3-models/Phi-3-vision-128k-instruct/vit \
+  examples/llava/phi3-models/gguf
+```
+
 8) Invoke
 ```console
-./llava-cli -m examples/llava/phi3-models/Phi-3-mini-128k-instruct/ggml-model-f16.gguf --mmproj examples/llava/phi3-models/Phi-3-vision-128k-instruct/vit/mmproj-model-f16.gguf --image examples/llava/test/lake-and-mountain.png -c 4096 --temp .1 -p "describe this image"
+./llava-cli -m examples/llava/phi3-models/gguf/ggml-model-f16.gguf --mmproj examples/llava/phi3-models/gguf/vit/mmproj-model-f16.gguf --image examples/llava/test/lake-and-mountain.png -c 4096 --temp .1 -p "describe this image"
 ```
 
 ## llava-cli templating and llava-1.6 prompting
