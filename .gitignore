@@ -75,6 +75,7 @@ models-mnt
 /result
 /save-load-state
 /server
+/server-mm
 /simple
 /batched
 /batched-bench
