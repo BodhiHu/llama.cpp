@@ -1,0 +1,18 @@
+FROM ../gguf/ggml-model-Q4_K_M.gguf
+FROM ../gguf/vit/mmproj-model-f16.gguf
+
+TEMPLATE """{{ if .System }}<|system|>
+{{ .System }}<|end|>
+{{ end }}{{ if .Prompt }}<|user|>
+{{ .Prompt }}<|end|>
+{{ end }}<|assistant|>
+{{ .Response }}<|end|>
+"""
+
+PARAMETER stop "<|user|>"
+PARAMETER stop "<|assistant|>"
+PARAMETER stop "<|system|>"
+PARAMETER stop "<|end|>"
+PARAMETER stop "<|endoftext|>"
+
+PARAMETER num_ctx 4096
