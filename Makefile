@@ -500,6 +500,90 @@ else
 	OBJS_CUDA_TEMP_INST += $(patsubst %.cu,%.o,$(wildcard ggml-cuda/template-instances/fattn-vec*f16-f16.cu))
 endif # LLAMA_CUDA_FA_ALL_QUANTS
 
+OBJS_MUSA_TEMP_INST      = $(patsubst %.mu,%.o,$(wildcard ggml-musa/template-instances/fattn-wmma*.mu))
+OBJS_MUSA_TEMP_INST     += $(patsubst %.mu,%.o,$(wildcard ggml-musa/template-instances/mmq*.mu))
+ifdef LLAMA_MUSA_FA_ALL_QUANTS
+	OBJS_MUSA_TEMP_INST += $(patsubst %.mu,%.o,$(wildcard ggml-musa/template-instances/fattn-vec*.mu))
+else
+	OBJS_MUSA_TEMP_INST += $(patsubst %.mu,%.o,$(wildcard ggml-musa/template-instances/fattn-vec*q4_0-q4_0.mu))
+	OBJS_MUSA_TEMP_INST += $(patsubst %.mu,%.o,$(wildcard ggml-musa/template-instances/fattn-vec*q8_0-q8_0.mu))
+	OBJS_MUSA_TEMP_INST += $(patsubst %.mu,%.o,$(wildcard ggml-musa/template-instances/fattn-vec*f16-f16.mu))
+endif # LLAMA_MUSA_FA_ALL_QUANTS
+
+ifdef LLAMA_MUSA
+	MUSA_PATH ?= /usr/local/musa
+	MK_CPPFLAGS  += -DGGML_USE_MUSA -I$(MUSA_PATH)/include
+	MK_LDFLAGS   += -lmusart -L$(MUSA_PATH)/lib -lpthread -ldl -lrt -L/usr/lib64 -L/usr/lib/wsl/lib
+	OBJS         += ggml-musa.o
+	OBJS         += $(patsubst %.mu,%.o,$(wildcard ggml-musa/*.mu))
+	OBJS         += $(OBJS_MUSA_TEMP_INST)
+	MK_NVCCFLAGS  += -use_fast_math
+ifdef LLAMA_FATAL_WARNINGS
+	MK_NVCCFLAGS += -Werror all-warnings
+endif # LLAMA_FATAL_WARNINGS
+ifdef LLAMA_DEBUG
+	MK_NVCCFLAGS += -lineinfo
+endif # LLAMA_DEBUG
+ifdef LLAMA_MUSA_MCC
+	MCC = $(CCACHE) $(LLAMA_MUSA_MCC)
+else
+	MCC = $(CCACHE) mcc
+endif # LLAMA_MUSA_MCC
+ifdef LLAMA_CUDA_FORCE_DMMV
+	MK_NVCCFLAGS += -DGGML_CUDA_FORCE_DMMV
+endif # LLAMA_CUDA_FORCE_DMMV
+ifdef LLAMA_CUDA_FORCE_MMQ
+	MK_NVCCFLAGS += -DGGML_CUDA_FORCE_MMQ
+endif # LLAMA_CUDA_FORCE_MMQ
+ifdef LLAMA_CUDA_DMMV_X
+	MK_NVCCFLAGS += -DGGML_CUDA_DMMV_X=$(LLAMA_CUDA_DMMV_X)
+else
+	MK_NVCCFLAGS += -DGGML_CUDA_DMMV_X=32
+endif # LLAMA_CUDA_DMMV_X
+ifdef LLAMA_CUDA_MMV_Y
+	MK_NVCCFLAGS += -DGGML_CUDA_MMV_Y=$(LLAMA_CUDA_MMV_Y)
+else ifdef LLAMA_CUDA_DMMV_Y
+	MK_NVCCFLAGS += -DGGML_CUDA_MMV_Y=$(LLAMA_CUDA_DMMV_Y) # for backwards compatibility
+else
+	MK_NVCCFLAGS += -DGGML_CUDA_MMV_Y=1
+endif # LLAMA_CUDA_MMV_Y
+ifdef LLAMA_CUDA_F16
+	MK_NVCCFLAGS += -DGGML_CUDA_F16
+endif # LLAMA_CUDA_F16
+ifdef LLAMA_CUDA_DMMV_F16
+	MK_NVCCFLAGS += -DGGML_CUDA_F16
+endif # LLAMA_CUDA_DMMV_F16
+ifdef LLAMA_CUDA_KQUANTS_ITER
+	MK_NVCCFLAGS += -DK_QUANTS_PER_ITERATION=$(LLAMA_CUDA_KQUANTS_ITER)
+else
+	MK_NVCCFLAGS += -DK_QUANTS_PER_ITERATION=2
+endif
+ifdef LLAMA_CUDA_PEER_MAX_BATCH_SIZE
+	MK_NVCCFLAGS += -DGGML_CUDA_PEER_MAX_BATCH_SIZE=$(LLAMA_CUDA_PEER_MAX_BATCH_SIZE)
+else
+	MK_NVCCFLAGS += -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128
+endif # LLAMA_CUDA_PEER_MAX_BATCH_SIZE
+ifdef LLAMA_CUDA_NO_PEER_COPY
+	MK_NVCCFLAGS += -DGGML_CUDA_NO_PEER_COPY
+endif # LLAMA_CUDA_NO_PEER_COPY
+ifdef LLAMA_CUDA_CCBIN
+	MK_NVCCFLAGS += -ccbin $(LLAMA_CUDA_CCBIN)
+endif # LLAMA_CUDA_CCBIN
+ifdef LLAMA_CUDA_FA_ALL_QUANTS
+	MK_NVCCFLAGS += -DGGML_CUDA_FA_ALL_QUANTS
+endif # LLAMA_CUDA_FA_ALL_QUANTS
+
+define MCC_COMPILE
+	$(MCC) -x musa $(NVCCFLAGS) $(CPPFLAGS) -Xcompiler -c $< -o $@
+endef # MCC_COMPILE
+
+ggml-musa/%.o: ggml-musa/%.mu ggml.h ggml-common.h ggml-musa/common.cuh
+	$(MCC_COMPILE)
+
+ggml-musa.o: ggml-musa.mu ggml-musa.h ggml.h ggml-backend.h ggml-backend-impl.h ggml-common.h $(wildcard ggml-musa/*.cuh)
+	$(MCC_COMPILE)
+endif # LLAMA_MUSA
+
 ifdef LLAMA_CUDA
 	ifneq ('', '$(wildcard /opt/cuda)')
 		CUDA_PATH ?= /opt/cuda
