@@ -500,6 +500,97 @@ else
 	OBJS_CUDA_TEMP_INST += $(patsubst %.cu,%.o,$(wildcard ggml-cuda/template-instances/fattn-vec*f16-f16.cu))
 endif # LLAMA_CUDA_FA_ALL_QUANTS
 
+ifdef LLAMA_MUSA
+	MUSA_PATH ?= /usr/local/musa
+	MK_CPPFLAGS  += -DGGML_USE_CUDA -I$(MUSA_PATH)/include -I$(MUSA_PATH)/targets/$(UNAME_M)-linux/include -DGGML_CUDA_USE_GRAPHS
+	MK_LDFLAGS   += -lcuda -lcublas -lculibos -lcudart -lcublasLt -lpthread -ldl -lrt -L$(MUSA_PATH)/lib64 -L/usr/lib64 -L$(MUSA_PATH)/targets/$(UNAME_M)-linux/lib -L/usr/lib/wsl/lib
+	OBJS         += ggml-cuda.o
+	OBJS         += $(patsubst %.cu,%.o,$(wildcard ggml-cuda/*.cu))
+	OBJS         += $(OBJS_CUDA_TEMP_INST)
+	MK_NVCCFLAGS += -use_fast_math
+ifdef LLAMA_FATAL_WARNINGS
+	MK_NVCCFLAGS += -Werror all-warnings
+endif # LLAMA_FATAL_WARNINGS
+ifndef JETSON_EOL_MODULE_DETECT
+	MK_NVCCFLAGS += --forward-unknown-to-host-compiler
+endif # JETSON_EOL_MODULE_DETECT
+ifdef LLAMA_DEBUG
+	MK_NVCCFLAGS += -lineinfo
+endif # LLAMA_DEBUG
+ifdef LLAMA_CUDA_DEBUG
+	MK_NVCCFLAGS += --device-debug
+endif # LLAMA_CUDA_DEBUG
+ifdef LLAMA_MUSA_MCC
+	MCC = $(CCACHE) $(LLAMA_MUSA_MCC)
+else
+	MCC = $(CCACHE) mcc
+endif #LLAMA_CUDA_NVCC
+ifdef CUDA_DOCKER_ARCH
+	MK_NVCCFLAGS += -Wno-deprecated-gpu-targets -arch=$(CUDA_DOCKER_ARCH)
+else ifndef CUDA_POWER_ARCH
+	MK_NVCCFLAGS += -arch=native
+endif # CUDA_DOCKER_ARCH
+ifdef LLAMA_CUDA_FORCE_DMMV
+	MK_NVCCFLAGS += -DGGML_CUDA_FORCE_DMMV
+endif # LLAMA_CUDA_FORCE_DMMV
+ifdef LLAMA_CUDA_FORCE_MMQ
+	MK_NVCCFLAGS += -DGGML_CUDA_FORCE_MMQ
+endif # LLAMA_CUDA_FORCE_MMQ
+ifdef LLAMA_CUDA_DMMV_X
+	MK_NVCCFLAGS += -DGGML_CUDA_DMMV_X=$(LLAMA_CUDA_DMMV_X)
+else
+	MK_NVCCFLAGS += -DGGML_CUDA_DMMV_X=32
+endif # LLAMA_CUDA_DMMV_X
+ifdef LLAMA_CUDA_MMV_Y
+	MK_NVCCFLAGS += -DGGML_CUDA_MMV_Y=$(LLAMA_CUDA_MMV_Y)
+else ifdef LLAMA_CUDA_DMMV_Y
+	MK_NVCCFLAGS += -DGGML_CUDA_MMV_Y=$(LLAMA_CUDA_DMMV_Y) # for backwards compatibility
+else
+	MK_NVCCFLAGS += -DGGML_CUDA_MMV_Y=1
+endif # LLAMA_CUDA_MMV_Y
+ifdef LLAMA_CUDA_F16
+	MK_NVCCFLAGS += -DGGML_CUDA_F16
+endif # LLAMA_CUDA_F16
+ifdef LLAMA_CUDA_DMMV_F16
+	MK_NVCCFLAGS += -DGGML_CUDA_F16
+endif # LLAMA_CUDA_DMMV_F16
+ifdef LLAMA_CUDA_KQUANTS_ITER
+	MK_NVCCFLAGS += -DK_QUANTS_PER_ITERATION=$(LLAMA_CUDA_KQUANTS_ITER)
+else
+	MK_NVCCFLAGS += -DK_QUANTS_PER_ITERATION=2
+endif
+ifdef LLAMA_CUDA_PEER_MAX_BATCH_SIZE
+	MK_NVCCFLAGS += -DGGML_CUDA_PEER_MAX_BATCH_SIZE=$(LLAMA_CUDA_PEER_MAX_BATCH_SIZE)
+else
+	MK_NVCCFLAGS += -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128
+endif # LLAMA_CUDA_PEER_MAX_BATCH_SIZE
+ifdef LLAMA_CUDA_NO_PEER_COPY
+	MK_NVCCFLAGS += -DGGML_CUDA_NO_PEER_COPY
+endif # LLAMA_CUDA_NO_PEER_COPY
+ifdef LLAMA_CUDA_CCBIN
+	MK_NVCCFLAGS += -ccbin $(LLAMA_CUDA_CCBIN)
+endif # LLAMA_CUDA_CCBIN
+ifdef LLAMA_CUDA_FA_ALL_QUANTS
+	MK_NVCCFLAGS += -DGGML_CUDA_FA_ALL_QUANTS
+endif # LLAMA_CUDA_FA_ALL_QUANTS
+
+ifdef JETSON_EOL_MODULE_DETECT
+define NVCC_COMPILE
+	$(NVCC) -I. -Icommon -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG -DGGML_USE_CUDA -I/usr/local/cuda/include -I/opt/cuda/include -I/usr/local/cuda/targets/aarch64-linux/include -std=c++11 -O3 $(NVCCFLAGS) $(CPPFLAGS) -Xcompiler "$(CUDA_CXXFLAGS)" -c $< -o $@
+endef # NVCC_COMPILE
+else
+define NVCC_COMPILE
+	$(NVCC) $(NVCCFLAGS) $(CPPFLAGS) -Xcompiler "$(CUDA_CXXFLAGS)" -c $< -o $@
+endef # NVCC_COMPILE
+endif # JETSON_EOL_MODULE_DETECT
+
+ggml-cuda/%.o: ggml-cuda/%.cu ggml.h ggml-common.h ggml-cuda/common.cuh
+	$(NVCC_COMPILE)
+
+ggml-cuda.o: ggml-cuda.cu ggml-cuda.h ggml.h ggml-backend.h ggml-backend-impl.h ggml-common.h $(wildcard ggml-cuda/*.cuh)
+	$(NVCC_COMPILE)
+endif # LLAMA_MUSA
+
 ifdef LLAMA_CUDA
 	ifneq ('', '$(wildcard /opt/cuda)')
 		CUDA_PATH ?= /opt/cuda
