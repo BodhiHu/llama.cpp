@@ -6,9 +6,14 @@ services:
       dockerfile: Dockerfile.cuda
     volumes:
       - .:/app
+      - .ollama:/root.ollama
     ports:
-      - 8080:8080
-    command: ./server-mm -m examples/llava/phi3-models/gguf/ggml-model-f16.gguf --mmproj examples/llava/phi3-models/gguf/vit/mmproj-model-f16.gguf -c 4096 --host 0.0.0.0 --port 8080
+      - 16888:16888
+    command: ./_apps/ollama/ollama serve
+    # command: ./server-mm -m examples/llava/phi3-models/gguf/ggml-model-f16.gguf --mmproj examples/llava/phi3-models/gguf/vit/mmproj-model-f16.gguf -c 4096 --host 0.0.0.0 --port 8080
+    restart: always
+    environment:
+      - OLLAMA_HOST=0.0.0.0:16888
     deploy:
       resources:
         reservations:
