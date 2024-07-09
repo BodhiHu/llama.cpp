@@ -5,13 +5,9 @@
 
 #include <memory>
 
-#if defined(GGML_USE_HIPBLAS)
-#define GGML_COMMON_DECL_HIP
-#define GGML_COMMON_IMPL_HIP
-#else
-#define GGML_COMMON_DECL_CUDA
-#define GGML_COMMON_IMPL_CUDA
-#endif
+#define GGML_COMMON_DECL_MUSA
+#define GGML_COMMON_IMPL_MUSA
+
 #include "ggml-common.h"
 
 #include <cstdio>
@@ -21,99 +17,6 @@
 #include <string>
 #include <vector>
 
-#if defined(GGML_USE_HIPBLAS)
-#include <hip/hip_runtime.h>
-#include <hipblas/hipblas.h>
-#include <hip/hip_fp16.h>
-#ifdef __HIP_PLATFORM_AMD__
-// for rocblas_initialize()
-#include "rocblas/rocblas.h"
-#endif // __HIP_PLATFORM_AMD__
-#define MUBLAS_COMPUTE_16F HIPBLAS_R_16F
-#define MUBLAS_COMPUTE_32F HIPBLAS_R_32F
-#define MUBLAS_COMPUTE_32F_FAST_16F HIPBLAS_R_32F
-#define MUBLAS_GEMM_DEFAULT HIPBLAS_GEMM_DEFAULT
-#define MUBLAS_GEMM_DEFAULT_TENSOR_OP HIPBLAS_GEMM_DEFAULT
-#define MUBLAS_OP_N HIPBLAS_OP_N
-#define MUBLAS_OP_T HIPBLAS_OP_T
-#define MUBLAS_STATUS_SUCCESS HIPBLAS_STATUS_SUCCESS
-#define MUBLAS_TF32_TENSOR_OP_MATH 0
-#define MUSA_R_16F  HIPBLAS_R_16F
-#define MUSA_R_32F  HIPBLAS_R_32F
-#define __shfl_xor_sync(mask, var, laneMask, width) __shfl_xor(var, laneMask, width)
-#define mublasComputeType_t hipblasDatatype_t //deprecated, new hipblasComputeType_t not in 5.6
-#define mublasCreate hipblasCreate
-#define mublasDestroy hipblasDestroy
-#define mublasGemmEx hipblasGemmEx
-#define mublasGemmBatchedEx hipblasGemmBatchedEx
-#define mublasGemmStridedBatchedEx hipblasGemmStridedBatchedEx
-#define mublasHandle_t hipblasHandle_t
-#define mublasSetMathMode(handle, mode) MUBLAS_STATUS_SUCCESS
-#define mublasSetStream hipblasSetStream
-#define mublasSgemm hipblasSgemm
-#define mublasStatus_t hipblasStatus_t
-#define musaDataType_t hipblasDatatype_t //deprecated, new hipblasDatatype not in 5.6
-#define musaDeviceCanAccessPeer hipDeviceCanAccessPeer
-#define musaDeviceDisablePeerAccess hipDeviceDisablePeerAccess
-#define musaDeviceEnablePeerAccess hipDeviceEnablePeerAccess
-#define musaDeviceProp hipDeviceProp_t
-#define musaDeviceSynchronize hipDeviceSynchronize
-#define musaError_t hipError_t
-#define musaErrorPeerAccessAlreadyEnabled hipErrorPeerAccessAlreadyEnabled
-#define musaErrorPeerAccessNotEnabled hipErrorPeerAccessNotEnabled
-#define musaEventCreateWithFlags hipEventCreateWithFlags
-#define musaEventDisableTiming hipEventDisableTiming
-#define musaEventRecord hipEventRecord
-#define musaEventSynchronize hipEventSynchronize
-#define musaEvent_t hipEvent_t
-#define musaEventDestroy hipEventDestroy
-#define musaFree hipFree
-#define musaFreeHost hipHostFree
-#define musaGetDevice hipGetDevice
-#define musaGetDeviceCount hipGetDeviceCount
-#define musaGetDeviceProperties hipGetDeviceProperties
-#define musaGetErrorString hipGetErrorString
-#define musaGetLastError hipGetLastError
-#define musaHostRegister hipHostRegister
-#define musaHostRegisterPortable hipHostRegisterPortable
-#define musaHostRegisterReadOnly hipHostRegisterReadOnly
-#define musaHostUnregister hipHostUnregister
-#define musaLaunchHostFunc hipLaunchHostFunc
-#define musaMalloc hipMalloc
-#define musaMallocHost(ptr, size) hipHostMalloc(ptr, size, hipHostMallocDefault)
-#define musaMemcpy hipMemcpy
-#define musaMemcpyAsync hipMemcpyAsync
-#define musaMemcpyPeerAsync hipMemcpyPeerAsync
-#define musaMemcpy2DAsync hipMemcpy2DAsync
-#define musaMemcpyDeviceToDevice hipMemcpyDeviceToDevice
-#define musaMemcpyDeviceToHost hipMemcpyDeviceToHost
-#define musaMemcpyHostToDevice hipMemcpyHostToDevice
-#define musaMemcpyKind hipMemcpyKind
-#define musaMemset hipMemset
-#define musaMemsetAsync hipMemsetAsync
-#define musaMemGetInfo hipMemGetInfo
-#define musaOccupancyMaxPotentialBlockSize hipOccupancyMaxPotentialBlockSize
-#define musaSetDevice hipSetDevice
-#define musaStreamCreateWithFlags hipStreamCreateWithFlags
-#define musaStreamDestroy hipStreamDestroy
-#define cudaStreamFireAndForget hipStreamFireAndForget
-#define musaStreamNonBlocking hipStreamNonBlocking
-#define musaStreamPerThread hipStreamPerThread
-#define musaStreamSynchronize hipStreamSynchronize
-#define musaStreamWaitEvent(stream, event, flags) hipStreamWaitEvent(stream, event, flags)
-#define musaStream_t hipStream_t
-#define musaSuccess hipSuccess
-#define __trap abort
-#define MUBLAS_STATUS_SUCCESS HIPBLAS_STATUS_SUCCESS
-#define MUBLAS_STATUS_NOT_INITIALIZED HIPBLAS_STATUS_NOT_INITIALIZED
-#define MUBLAS_STATUS_ALLOC_FAILED HIPBLAS_STATUS_ALLOC_FAILED
-#define MUBLAS_STATUS_INVALID_VALUE HIPBLAS_STATUS_INVALID_VALUE
-#define MUBLAS_STATUS_ARCH_MISMATCH HIPBLAS_STATUS_ARCH_MISMATCH
-#define MUBLAS_STATUS_MAPPING_ERROR HIPBLAS_STATUS_MAPPING_ERROR
-#define MUBLAS_STATUS_EXECUTION_FAILED HIPBLAS_STATUS_EXECUTION_FAILED
-#define MUBLAS_STATUS_INTERNAL_ERROR HIPBLAS_STATUS_INTERNAL_ERROR
-#define MUBLAS_STATUS_NOT_SUPPORTED HIPBLAS_STATUS_NOT_SUPPORTED
-#else
 #include <musa_runtime.h>
 #include <musa.h>
 #include <mublas.h>
@@ -126,8 +29,6 @@
 #define MUBLAS_COMPUTE_32F MUSA_R_32F
 #define mublasComputeType_t musaDataType_t
 #endif // MUSART_VERSION < 11020
-
-#endif // defined(GGML_USE_HIPBLAS)
 
 #define STRINGIZE_IMPL(...) #__VA_ARGS__
 #define STRINGIZE(...) STRINGIZE_IMPL(__VA_ARGS__)
@@ -207,14 +108,12 @@ void ggml_cuda_error(const char * stmt, const char * func, const char * file, in
 
 #define CUBLAS_CHECK(err) CUDA_CHECK_GEN(err, MUBLAS_STATUS_SUCCESS, cublas_get_error_str)
 
-#if !defined(GGML_USE_HIPBLAS)
 static const char * cu_get_error_str(MUresult err) {
     const char * err_str;
     muGetErrorString(err, &err_str);
     return err_str;
 }
 #define CU_CHECK(err) CUDA_CHECK_GEN(err, MUSA_SUCCESS, cu_get_error_str)
-#endif
 
 #if MUSART_VERSION >= 11100
 #define GGML_CUDA_ASSUME(x) __builtin_assume(x)
@@ -230,118 +129,21 @@ typedef float dfloat; // dequantize float
 typedef float2 dfloat2;
 #endif //GGML_CUDA_F16
 
-#if defined(GGML_USE_HIPBLAS)
-#define __MUSA_ARCH__ 1300
-
-#if defined(__gfx1100__) || defined(__gfx1101__) || defined(__gfx1102__) || defined(__gfx1103__) || \
-    defined(__gfx1150__) || defined(__gfx1151__)
-#define RDNA3
-#endif
-
-#if defined(__gfx1030__) || defined(__gfx1031__) || defined(__gfx1032__) || defined(__gfx1033__) || \
-    defined(__gfx1034__) || defined(__gfx1035__) || defined(__gfx1036__) || defined(__gfx1037__)
-#define RDNA2
-#endif
-
-#ifndef __has_builtin
-    #define __has_builtin(x) 0
-#endif
-
-typedef int8_t int8x4_t __attribute__((ext_vector_type(4)));
-typedef uint8_t uint8x4_t __attribute__((ext_vector_type(4)));
-static __device__ __forceinline__ int __vsubss4(const int a, const int b) {
-    const int8x4_t va = reinterpret_cast<const int8x4_t&>(a);
-    const int8x4_t vb = reinterpret_cast<const int8x4_t&>(b);
-#if __has_builtin(__builtin_elementwise_sub_sat)
-    const int8x4_t c = __builtin_elementwise_sub_sat(va, vb);
-    return reinterpret_cast<const int &>(c);
-#else
-    int8x4_t c;
-    int16_t tmp;
-#pragma unroll
-    for (int i = 0; i < 4; i++) {
-        tmp = va[i] - vb[i];
-        if(tmp > std::numeric_limits<int8_t>::max()) tmp = std::numeric_limits<int8_t>::max();
-        if(tmp < std::numeric_limits<int8_t>::min()) tmp = std::numeric_limits<int8_t>::min();
-        c[i] = tmp;
-    }
-    return reinterpret_cast<int &>(c);
-#endif // __has_builtin(__builtin_elementwise_sub_sat)
-}
-
-static __device__ __forceinline__ int __vsub4(const int a, const int b) {
-    return __vsubss4(a, b);
-}
-
-static __device__ __forceinline__ unsigned int __vcmpeq4(unsigned int a, unsigned int b) {
-    const uint8x4_t& va = reinterpret_cast<const uint8x4_t&>(a);
-    const uint8x4_t& vb = reinterpret_cast<const uint8x4_t&>(b);
-    unsigned int c;
-    uint8x4_t& vc = reinterpret_cast<uint8x4_t&>(c);
-#pragma unroll
-    for (int i = 0; i < 4; ++i) {
-        vc[i] = va[i] == vb[i] ? 0xff : 0x00;
-    }
-    return c;
-}
-
-static __device__ __forceinline__ int __dp4a(const int a, const int b, int c) {
-#if defined(__gfx906__) || defined(__gfx908__) || defined(__gfx90a__) || defined(__gfx1030__)
-    c = __builtin_amdgcn_sdot4(a, b, c, false);
-#elif defined(RDNA3)
-    c = __builtin_amdgcn_sudot4( true, a, true, b, c, false);
-#elif defined(__gfx1010__) || defined(__gfx900__)
-    int tmp1;
-    int tmp2;
-    asm("\n \
-        v_mul_i32_i24 %1, sext(%3), sext(%4) dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:BYTE_0 src1_sel:BYTE_0 \n \
-        v_mul_i32_i24 %2, sext(%3), sext(%4) dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:BYTE_1 src1_sel:BYTE_1 \n \
-        v_add3_u32 %0, %1, %2, %0 \n \
-        v_mul_i32_i24 %1, sext(%3), sext(%4) dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:BYTE_2 src1_sel:BYTE_2 \n \
-        v_mul_i32_i24 %2, sext(%3), sext(%4) dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:BYTE_3 src1_sel:BYTE_3 \n \
-        v_add3_u32 %0, %1, %2, %0 \n \
-        "
-        : "+v"(c), "=&v"(tmp1), "=&v"(tmp2)
-        : "v"(a), "v"(b)
-    );
-#else
-    const int8x4_t va = reinterpret_cast<const int8x4_t&>(a);
-    const int8x4_t vb = reinterpret_cast<const int8x4_t&>(b);
-    c += va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2] + va[3] * vb[3];
-#endif
-    return c;
-}
-
-#if defined(__HIP_PLATFORM_AMD__) && HIP_VERSION < 50600000
-// __shfl_xor() for half2 was added in ROCm 5.6
-static __device__ __forceinline__ half2 __shfl_xor(half2 var, int laneMask, int width) {
-    typedef union half2_b32 {
-        half2 val;
-        int   b32;
-    } half2_b32_t;
-    half2_b32_t tmp;
-    tmp.val = var;
-    tmp.b32 = __shfl_xor(tmp.b32, laneMask, width);
-    return tmp.val;
-}
-#endif // defined(__HIP_PLATFORM_AMD__) && HIP_VERSION < 50600000
-#endif // defined(GGML_USE_HIPBLAS)
-
-#if (defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) || __MUSA_ARCH__ >= CC_PASCAL
+#if __MUSA_ARCH__ >= CC_PASCAL
 #define FP16_AVAILABLE
-#endif // (defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) || __MUSA_ARCH__ >= CC_PASCAL
+#endif // __MUSA_ARCH__ >= CC_PASCAL
 
 #if defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
 #define FAST_FP16_AVAILABLE
 #endif // defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
 
-#if !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && __MUSA_ARCH__ >= CC_VOLTA
+#if __MUSA_ARCH__ >= CC_VOLTA
 #define FP16_MMA_AVAILABLE
-#endif // !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && __MUSA_ARCH__ >= CC_VOLTA
+#endif // __MUSA_ARCH__ >= CC_VOLTA
 
-#if !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && __MUSA_ARCH__ >= CC_TURING
+#if __MUSA_ARCH__ >= CC_TURING
 #define INT8_MMA_AVAILABLE
-#endif // !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && __MUSA_ARCH__ >= CC_TURING
+#endif // __MUSA_ARCH__ >= CC_TURING
 
 static bool fast_fp16_available(const int cc) {
     return cc >= CC_PASCAL && cc != 610;
@@ -359,14 +161,9 @@ static bool int8_mma_available(const int cc) {
 static __device__ void no_device_code(
     const char * file_name, const int line, const char * function_name, const int arch, const char * arch_list) {
 
-#if defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)
-    printf("%s:%d: ERROR: HIP kernel %s has no device code compatible with HIP arch %d.\n",
-           file_name, line, function_name, arch);
-    GGML_UNUSED(arch_list);
-#else
-    printf("%s:%d: ERROR: CUDA kernel %s has no device code compatible with CUDA arch %d. ggml-musa.mu was compiled for: %s\n",
+    printf("%s:%d: ERROR: MUSA kernel %s has no device code compatible with MUSA arch %d. ggml-musa.mu was compiled for: %s\n",
            file_name, line, function_name, arch, arch_list);
-#endif // defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)
+
     __trap();
 
     GGML_UNUSED(no_device_code); // suppress unused function warning
@@ -397,23 +194,11 @@ static __device__ __forceinline__ float2 warp_reduce_sum(float2 a) {
 
 static __device__ __forceinline__ half2 warp_reduce_sum(half2 a) {
 #ifdef FP16_AVAILABLE
-
-#if defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)
-#pragma unroll
-    for (int mask = 16; mask > 0; mask >>= 1) {
-        const half2 a_other = __shfl_xor_sync(0xffffffff, a, mask, 32);
-        reinterpret_cast<half&>(a.x) +=  __low2half(a_other);
-        reinterpret_cast<half&>(a.y) += __high2half(a_other);
-    }
-    return a;
-#else
 #pragma unroll
     for (int mask = 16; mask > 0; mask >>= 1) {
         a = __hadd2(a, __shfl_xor_sync(0xffffffff, a, mask, 32));
     }
     return a;
-#endif // defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)
-
 #else
     NO_DEVICE_CODE;
     return a;
@@ -431,11 +216,11 @@ static __device__ __forceinline__ float warp_reduce_max(float x) {
 static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b) {
 #ifdef FP16_AVAILABLE
 
-#if !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && MUSART_VERSION < CUDART_HMAX
+#if MUSART_VERSION < CUDART_HMAX
     return __float2half(fmaxf(__half2float(a), __half2float(b)));
 #else
     return __hmax(a, b);
-#endif // !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && MUSART_VERSION < CUDART_HMAX
+#endif // MUSART_VERSION < CUDART_HMAX
 
 #else
    NO_DEVICE_CODE;
@@ -445,8 +230,6 @@ static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b
 }
 
 static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const half2 b) {
-#if !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__))
-
 #if MUSART_VERSION >= CUDART_HMAX
     return __hmax2(a, b);
 #else
@@ -455,16 +238,10 @@ static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const hal
     reinterpret_cast<half&>(ret.y) = __float2half(fmaxf(__high2float(a), __high2float(b)));
     return ret;
 #endif // MUSART_VERSION >= CUDART_HMAX
-
-#else
-    GGML_UNUSED(a);
-    GGML_UNUSED(b);
-    NO_DEVICE_CODE;
-#endif // !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__))
 }
 
 static __device__ __forceinline__ half2 warp_reduce_max(half2 x) {
-#if !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && __MUSA_ARCH__ >= CC_PASCAL
+#if __MUSA_ARCH__ >= CC_PASCAL
 #pragma unroll
    for (int mask = 16; mask > 0; mask >>= 1) {
        x = ggml_cuda_hmax2(x, __shfl_xor_sync(0xffffffff, x, mask, 32));
@@ -473,7 +250,7 @@ static __device__ __forceinline__ half2 warp_reduce_max(half2 x) {
 #else
    GGML_UNUSED(x);
    NO_DEVICE_CODE;
-#endif // !(defined(GGML_USE_HIPBLAS) && defined(__HIP_PLATFORM_AMD__)) && __MUSA_ARCH__ >= CC_PASCAL
+#endif // __MUSA_ARCH__ >= CC_PASCAL
 }
 
 #if MUSART_VERSION < CUDART_HMASK
