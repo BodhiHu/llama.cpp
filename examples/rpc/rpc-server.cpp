@@ -2,6 +2,10 @@
 #include "ggml-cuda.h"
 #endif
 
+#ifdef GGML_USE_MUSA
+#include "ggml-musa.h"
+#endif
+
 #ifdef GGML_USE_METAL
 #include "ggml-metal.h"
 #endif
@@ -73,6 +77,12 @@ static ggml_backend_t create_backend() {
     if (!backend) {
         fprintf(stderr, "%s: ggml_backend_cuda_init() failed\n", __func__);
     }
+#elif GGML_USE_MUSA
+    fprintf(stderr, "%s: using MUSA backend\n", __func__);
+    backend = ggml_backend_cuda_init(0); // init device 0
+    if (!backend) {
+        fprintf(stderr, "%s: ggml_backend_cuda_init() failed\n", __func__);
+    }
 #elif GGML_USE_METAL
     fprintf(stderr, "%s: using Metal backend\n", __func__);
     backend = ggml_backend_metal_init();
@@ -91,6 +101,8 @@ static ggml_backend_t create_backend() {
 
 static void get_backend_memory(size_t * free_mem, size_t * total_mem) {
 #ifdef GGML_USE_CUDA
+    ggml_backend_cuda_get_device_memory(0, free_mem, total_mem);
+#elif GGML_USE_MUSA
     ggml_backend_cuda_get_device_memory(0, free_mem, total_mem);
 #else
     #ifdef _WIN32

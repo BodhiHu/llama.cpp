@@ -425,6 +425,11 @@ GGML_CALL static void ggml_backend_registry_init(void) {
     ggml_backend_cuda_reg_devices();
 #endif
 
+#ifdef GGML_USE_MUSA
+    extern GGML_CALL void ggml_backend_cuda_reg_devices(void);
+    ggml_backend_cuda_reg_devices();
+#endif
+
 #ifdef GGML_USE_SYCL
     extern void ggml_backend_sycl_reg_devices(void);
     ggml_backend_sycl_reg_devices();

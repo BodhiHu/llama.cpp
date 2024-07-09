@@ -6,6 +6,10 @@
 #include "ggml-cuda.h"
 #endif
 
+#ifdef GGML_USE_MUSA
+#include "ggml-musa.h"
+#endif
+
 #ifdef GGML_USE_METAL
 #include "ggml-metal.h"
 #endif
@@ -66,6 +70,12 @@ struct pca_model {
     pca_model(struct ggml_tensor * t_input) {
 #ifdef GGML_USE_CUDA
         fprintf(stderr, "%s: using CUDA backend\n", __func__);
+        backend = ggml_backend_cuda_init(0); // init device 0
+        if (!backend) {
+            fprintf(stderr, "%s: ggml_backend_cuda_init() failed\n", __func__);
+        }
+#elif defined(GGML_USE_MUSA)
+        fprintf(stderr, "%s: using MUSA backend\n", __func__);
         backend = ggml_backend_cuda_init(0); // init device 0
         if (!backend) {
             fprintf(stderr, "%s: ggml_backend_cuda_init() failed\n", __func__);
