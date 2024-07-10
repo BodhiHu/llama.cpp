@@ -12,6 +12,10 @@
 #include "ggml-cuda.h"
 #endif
 
+#ifdef GGML_USE_MUSA
+#include "ggml-musa.h"
+#endif
+
 #ifdef GGML_USE_METAL
 #include "ggml-metal.h"
 #endif
@@ -1011,6 +1015,11 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
 #ifdef GGML_USE_CUDA
     new_clip->backend = ggml_backend_cuda_init(0);
     LOG_TEE("%s: CLIP using CUDA backend\n", __func__);
+#endif
+
+#ifdef GGML_USE_MUSA
+    new_clip->backend = ggml_backend_cuda_init(0);
+    LOG_TEE("%s: CLIP using MUSA backend\n", __func__);
 #endif
 
 #ifdef GGML_USE_METAL

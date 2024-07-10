@@ -13,6 +13,8 @@
 
 #ifdef GGML_USE_CUDA
 #  include "ggml-cuda.h"
+#elif defined(GGML_USE_MUSA)
+#  include "ggml-musa.h"
 #elif defined(GGML_USE_VULKAN)
 #  include "ggml-vulkan.h"
 #elif defined(GGML_USE_SYCL)
@@ -1855,6 +1857,11 @@ static ggml_backend_buffer_type_t llama_default_buffer_type_cpu(bool host_buffer
     if (host_buffer) {
         buft = ggml_backend_cuda_host_buffer_type();
     }
+#elif defined(GGML_USE_MUSA)
+    // host buffers should only be used when data is expected to be copied to/from the GPU
+    if (host_buffer) {
+        buft = ggml_backend_cuda_host_buffer_type();
+    }
 #elif defined(GGML_USE_SYCL)
     if (host_buffer) {
         buft = ggml_backend_sycl_host_buffer_type();
@@ -1884,6 +1891,8 @@ struct llama_state {
 #ifdef GGML_USE_METAL
         ggml_backend_metal_log_set_callback(log_callback, log_callback_user_data);
 #elif defined(GGML_USE_CUDA)
+        ggml_backend_cuda_log_set_callback(log_callback, log_callback_user_data);
+#elif defined(GGML_USE_MUSA)
         ggml_backend_cuda_log_set_callback(log_callback, log_callback_user_data);
 #endif
     }
@@ -2406,6 +2415,10 @@ struct llama_model {
             if (ggml_backend_buffer_get_type(buf) == ggml_backend_cpu_buffer_type()) {
                 ggml_backend_cuda_unregister_host_buffer(ggml_backend_buffer_get_base(buf));
             }
+#elif defined(GGML_USE_MUSA)
+            if (ggml_backend_buffer_get_type(buf) == ggml_backend_cpu_buffer_type()) {
+                ggml_backend_cuda_unregister_host_buffer(ggml_backend_buffer_get_base(buf));
+            }
 #endif
             ggml_backend_buffer_free(buf);
         }
@@ -2508,6 +2521,8 @@ static size_t llama_get_device_count(const llama_model & model) {
     size_t count = 1;
 #if defined(GGML_USE_CUDA)
     count = ggml_backend_cuda_get_device_count();
+#elif defined(GGML_USE_MUSA)
+    count = ggml_backend_cuda_get_device_count();
 #elif defined(GGML_USE_SYCL)
     count = ggml_backend_sycl_get_device_count();
 #elif defined(GGML_USE_VULKAN)
@@ -2535,6 +2550,8 @@ static ggml_backend_buffer_type_t llama_default_buffer_type_offload(const llama_
     buft = ggml_backend_metal_buffer_type();
 #elif defined(GGML_USE_CUDA)
     buft = ggml_backend_cuda_buffer_type(gpu);
+#elif defined(GGML_USE_MUSA)
+    buft = ggml_backend_cuda_buffer_type(gpu);
 #elif defined(GGML_USE_VULKAN)
     buft = ggml_backend_vk_buffer_type(gpu);
 #elif defined(GGML_USE_SYCL)
@@ -2558,6 +2575,12 @@ static ggml_backend_buffer_type_t llama_default_buffer_type_split(const llama_mo
     ggml_backend_buffer_type_t buft = nullptr;
 
 #ifdef GGML_USE_CUDA
+    if (ggml_backend_cuda_get_device_count() > 1) {
+        buft = ggml_backend_cuda_split_buffer_type(tensor_split);
+    }
+#endif
+
+#ifdef GGML_USE_MUSA
     if (ggml_backend_cuda_get_device_count() > 1) {
         buft = ggml_backend_cuda_split_buffer_type(tensor_split);
     }
@@ -2590,6 +2613,11 @@ static size_t llama_get_device_memory(const llama_model & model, int device) {
     }
 #endif
 #if defined(GGML_USE_CUDA)
+    size_t total;
+    size_t free;
+    ggml_backend_cuda_get_device_memory(device, &free, &total);
+    return free;
+#elif defined(GGML_USE_MUSA)
     size_t total;
     size_t free;
     ggml_backend_cuda_get_device_memory(device, &free, &total);
@@ -3883,6 +3911,42 @@ struct llama_model_loader {
                 }
             }
         }
+#elif defined(GGML_USE_MUSA)
+        // 4 staging buffers for async uploads, each sized 1MB seems to be a good default for single NVMe drives.
+        // NVMe raid configurations might require more / larger buffers.
+        constexpr size_t num_buffers = 4;
+        constexpr size_t buffer_size = 1 * 1024 * 1024; // 1MB
+
+        std::vector<ggml_backend_buffer_t> host_buffers;
+        std::vector<void*> host_ptrs;
+        std::vector<ggml_backend_event_t> events;
+        size_t buffer_idx = 0; // buffer to use for async loads
+
+        ggml_backend_t cuda_backend = nullptr;
+        if (!use_mmap && !check_tensors) {
+            // When not using mmaped io use async uploads from pinned memory to GPU memory.
+            // First determine if the CUDA backend is active, and if so, determine the device ID.
+            ggml_backend_buffer_t buf = bufs_mmap.count(0) ? bufs_mmap.at(0) : nullptr;
+            if (buf) {
+                ggml_backend_buffer_type_t buffer_type = ggml_backend_buffer_get_type(buf);
+                for (int i = 0; i < ggml_backend_cuda_get_device_count(); ++i) {
+                    auto * cuda_buffer_type = ggml_backend_cuda_buffer_type(i);
+                    if (buffer_type == cuda_buffer_type) {
+                        cuda_backend = ggml_backend_cuda_init(i);
+                        break;
+                    }
+                }
+            }
+
+            // If the cuda backend is active create pinned memory buffers and events for synchronisation.
+            if (cuda_backend) {
+                for (size_t idx = 0; idx < num_buffers; ++idx) {
+                    host_buffers.emplace_back(ggml_backend_buft_alloc_buffer(llama_default_buffer_type_cpu(true), buffer_size));
+                    host_ptrs.emplace_back(ggml_backend_buffer_get_base(host_buffers[idx]));
+                    events.emplace_back(ggml_backend_event_new(cuda_backend));
+                }
+            }
+        }
 #endif
 
         for (struct ggml_tensor * cur = ggml_get_first_tensor(ctx); cur != NULL; cur = ggml_get_next_tensor(ctx, cur)) {
@@ -3961,6 +4025,27 @@ struct llama_model_loader {
                         }
                     }
                     else
+#elif defined(GGML_USE_MUSA)
+                    // If cuda_backend is valid load the tensor in chunks to pinned memory and upload the buffers asynchronously to the GPU.
+                    if (cuda_backend) {
+                        file->seek(weight->offs, SEEK_SET);
+
+                        size_t bytes_read = 0;
+
+                        while (bytes_read < n_size) {
+                            size_t read_iteration = std::min<size_t>(buffer_size, n_size - bytes_read);
+
+                            ggml_backend_event_synchronize(events[buffer_idx]);
+                            file->read_raw(host_ptrs[buffer_idx], read_iteration);
+                            ggml_backend_tensor_set_async(cuda_backend, cur, host_ptrs[buffer_idx], bytes_read, read_iteration);
+                            ggml_backend_event_record(events[buffer_idx]);
+
+                            bytes_read += read_iteration;
+                            ++buffer_idx;
+                            buffer_idx %= num_buffers;
+                        }
+                    }
+                    else
 #endif
                     {
                         read_buf.resize(n_size);
@@ -3978,6 +4063,16 @@ struct llama_model_loader {
         }
 
 #if defined(GGML_USE_CUDA)
+        // free temporary resources used for async cuda uploads
+        if (cuda_backend) {
+            for (size_t idx = 0; idx < num_buffers;++idx) {
+                ggml_backend_event_synchronize(events[idx]);
+                ggml_backend_event_free(events[idx]);
+                ggml_backend_buffer_free(host_buffers[idx]);
+            }
+            ggml_backend_free(cuda_backend);
+        }
+#elif defined(GGML_USE_MUSA)
         // free temporary resources used for async cuda uploads
         if (cuda_backend) {
             for (size_t idx = 0; idx < num_buffers;++idx) {
@@ -6669,6 +6764,12 @@ static bool llm_load_tensors(
                 model.bufs.push_back(buf);
                 bufs.emplace(idx, buf);
 #ifdef GGML_USE_CUDA
+                if (n_layer >= n_gpu_layers) {
+                    ggml_backend_cuda_register_host_buffer(
+                        ggml_backend_buffer_get_base(buf),
+                        ggml_backend_buffer_get_size(buf));
+                }
+#elif defined(GGML_USE_MUSA)
                 if (n_layer >= n_gpu_layers) {
                     ggml_backend_cuda_register_host_buffer(
                         ggml_backend_buffer_get_base(buf),
@@ -16131,6 +16232,8 @@ size_t llama_max_devices(void) {
     return 1;
 #elif defined(GGML_USE_CUDA)
     return GGML_CUDA_MAX_DEVICES;
+#elif defined(GGML_USE_MUSA)
+    return GGML_CUDA_MAX_DEVICES;
 #elif defined(GGML_USE_SYCL)
     return GGML_SYCL_MAX_DEVICES;
 #elif defined(GGML_USE_VULKAN)
@@ -16149,8 +16252,9 @@ bool llama_supports_mlock(void) {
 }
 
 bool llama_supports_gpu_offload(void) {
-#if defined(GGML_USE_CUDA) || defined(GGML_USE_METAL)   || defined(GGML_USE_VULKAN) || \
-    defined(GGML_USE_SYCL) || defined(GGML_USE_KOMPUTE) || defined(GGML_USE_RPC)
+#if defined(GGML_USE_CUDA) || defined(GGML_USE_MUSA) || defined(GGML_USE_METAL) || \
+    defined(GGML_USE_VULKAN) || defined(GGML_USE_SYCL) || defined(GGML_USE_KOMPUTE) || \
+    defined(GGML_USE_RPC)
     // Defined when llama.cpp is compiled with support for offloading model layers to GPU.
     return true;
 #else
@@ -16406,6 +16510,28 @@ struct llama_context * llama_new_context_with_model(
                 ctx->backends.push_back(backend);
             }
         }
+#elif defined(GGML_USE_MUSA)
+        if (model->split_mode == LLAMA_SPLIT_MODE_NONE || model->split_mode == LLAMA_SPLIT_MODE_ROW) {
+            // with split_mode LLAMA_SPLIT_MODE_NONE or LLAMA_SPLIT_MODE_ROW, only the main GPU backend is used
+            ggml_backend_t backend = ggml_backend_cuda_init(model->main_gpu);
+            if (backend == nullptr) {
+                LLAMA_LOG_ERROR("%s: failed to initialize CUDA%d backend\n", __func__, model->main_gpu);
+                llama_free(ctx);
+                return nullptr;
+            }
+            ctx->backends.push_back(backend);
+        } else {
+            // LLAMA_SPLIT_MODE_LAYER requires a backend for each GPU
+            for (int device = 0; device < ggml_backend_cuda_get_device_count(); ++device) {
+                ggml_backend_t backend = ggml_backend_cuda_init(device);
+                if (backend == nullptr) {
+                    LLAMA_LOG_ERROR("%s: failed to initialize CUDA%d backend\n", __func__, device);
+                    llama_free(ctx);
+                    return nullptr;
+                }
+                ctx->backends.push_back(backend);
+            }
+        }
 #elif defined(GGML_USE_VULKAN)
         if (model->split_mode == LLAMA_SPLIT_MODE_ROW) {
             LLAMA_LOG_ERROR("%s: Row split not supported. Failed to initialize Vulkan backend\n", __func__);
@@ -16557,7 +16683,7 @@ struct llama_context * llama_new_context_with_model(
                 model->n_gpu_layers > (int)model->hparams.n_layer &&
                 model->split_mode == LLAMA_SPLIT_MODE_LAYER &&
                 params.offload_kqv;
-#ifndef GGML_USE_CUDA
+#if !defined(GGML_USE_CUDA) || !defined(GGML_USE_MUSA)
             // pipeline parallelism requires support for async compute and events
             // currently this is only implemented in the CUDA backend
             pipeline_parallel = false;
@@ -18850,6 +18976,8 @@ void llama_log_set(ggml_log_callback log_callback, void * user_data) {
 #ifdef GGML_USE_METAL
     ggml_backend_metal_log_set_callback(g_state.log_callback, g_state.log_callback_user_data);
 #elif defined(GGML_USE_CUDA)
+    ggml_backend_cuda_log_set_callback(g_state.log_callback, g_state.log_callback_user_data);
+#elif defined(GGML_USE_MUSA)
     ggml_backend_cuda_log_set_callback(g_state.log_callback, g_state.log_callback_user_data);
 #endif
 }

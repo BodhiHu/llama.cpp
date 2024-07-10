@@ -110,6 +110,17 @@ static std::string get_gpu_info() {
         }
     }
 #endif
+#ifdef GGML_USE_MUSA
+    int count = ggml_backend_cuda_get_device_count();
+    for (int i = 0; i < count; i++) {
+        char buf[128];
+        ggml_backend_cuda_get_device_description(i, buf, sizeof(buf));
+        id += buf;
+        if (i < count - 1) {
+            id += "/";
+        }
+    }
+#endif
 #ifdef GGML_USE_SYCL
     int count = ggml_backend_sycl_get_device_count();
     for (int i = 0; i < count; i++) {
@@ -710,6 +721,7 @@ struct test {
     static const std::string build_commit;
     static const int build_number;
     static const bool cuda;
+    static const bool musa;
     static const bool vulkan;
     static const bool kompute;
     static const bool metal;
@@ -908,6 +920,7 @@ struct test {
 const std::string test::build_commit = LLAMA_COMMIT;
 const int         test::build_number = LLAMA_BUILD_NUMBER;
 const bool        test::cuda         = !!ggml_cpu_has_cuda();
+const bool        test::musa         = !!ggml_cpu_has_musa();
 const bool        test::vulkan       = !!ggml_cpu_has_vulkan();
 const bool        test::kompute      = !!ggml_cpu_has_kompute();
 const bool        test::metal        = !!ggml_cpu_has_metal();

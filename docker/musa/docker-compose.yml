@@ -1,0 +1,24 @@
+version: '3'
+services:
+  llama.cpp:
+    build:
+      context: ../..
+      dockerfile: docker/musa/Dockerfile
+    volumes:
+      - ../..:/app
+      - ../../._ollama:/root.ollama
+    ports:
+      - 10888:10888
+    # command: ./_apps/ollama/ollama serve
+    # command: ./server-mm -m examples/llava/phi3-models/gguf/ggml-model-f16.gguf --mmproj examples/llava/phi3-models/gguf/vit/mmproj-model-f16.gguf -c 4096 --host 0.0.0.0 --port 8080
+    restart: always
+    environment:
+      - OLLAMA_HOST=0.0.0.0:10888
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #       - driver: musa
+    #         # use all GPUs or the specified ones:
+    #         # device_ids: ['0','1','2','3']
+    #         capabilities: [gpu]
