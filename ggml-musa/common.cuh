@@ -24,7 +24,7 @@
 
 #if MUSART_VERSION < 11020
 #define MU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED MU_DEVICE_ATTRIBUTE_VIRTUAL_ADDRESS_MANAGEMENT_SUPPORTED
-#define MUBLAS_TF32_TENSOR_OP_MATH MUBLAS_TENSOR_OP_MATH
+#define MUBLAS_TF32_TENSOR_OP_MATH MUBLAS_MATH_MODE_TENSOR_OP
 #define MUBLAS_COMPUTE_16F MUSA_R_16F
 #define MUBLAS_COMPUTE_32F MUSA_R_32F
 #define mublasComputeType_t musaDataType_t
@@ -85,26 +85,25 @@ void ggml_cuda_error(const char * stmt, const char * func, const char * file, in
 
 #define CUDA_CHECK(err) CUDA_CHECK_GEN(err, musaSuccess, musaGetErrorString)
 
-#if MUSART_VERSION >= 12000
-    static const char * cublas_get_error_str(const mublasStatus_t err) {
-        return mublasGetStatusString(err);
-    }
-#else
     static const char * cublas_get_error_str(const mublasStatus_t err) {
         switch (err) {
-            case MUBLAS_STATUS_SUCCESS: return "MUBLAS_STATUS_SUCCESS";
-            case MUBLAS_STATUS_NOT_INITIALIZED: return "MUBLAS_STATUS_NOT_INITIALIZED";
-            case MUBLAS_STATUS_ALLOC_FAILED: return "MUBLAS_STATUS_ALLOC_FAILED";
-            case MUBLAS_STATUS_INVALID_VALUE: return "MUBLAS_STATUS_INVALID_VALUE";
-            case MUBLAS_STATUS_ARCH_MISMATCH: return "MUBLAS_STATUS_ARCH_MISMATCH";
-            case MUBLAS_STATUS_MAPPING_ERROR: return "MUBLAS_STATUS_MAPPING_ERROR";
-            case MUBLAS_STATUS_EXECUTION_FAILED: return "MUBLAS_STATUS_EXECUTION_FAILED";
-            case MUBLAS_STATUS_INTERNAL_ERROR: return "MUBLAS_STATUS_INTERNAL_ERROR";
-            case MUBLAS_STATUS_NOT_SUPPORTED: return "MUBLAS_STATUS_NOT_SUPPORTED";
-            default: return "unknown error";
+            case MUBLAS_STATUS_SUCCESS:             return "MUBLAS_STATUS_SUCCESS";
+            case MUBLAS_STATUS_INVALID_HANDLE:      return "MUBLAS_STATUS_INVALID_HANDLE";
+            case MUBLAS_STATUS_NOT_IMPLEMENTED:     return "MUBLAS_STATUS_NOT_IMPLEMENTED";
+            case MUBLAS_STATUS_INVALID_POINTER:     return "MUBLAS_STATUS_INVALID_POINTER";
+            case MUBLAS_STATUS_INVALID_SIZE:        return "MUBLAS_STATUS_INVALID_SIZE";
+            case MUBLAS_STATUS_MEMORY_ERROR:        return "MUBLAS_STATUS_MEMORY_ERROR";
+            case MUBLAS_STATUS_INTERNAL_ERROR:      return "MUBLAS_STATUS_INTERNAL_ERROR";
+            case MUBLAS_STATUS_PERF_DEGRADED:       return "MUBLAS_STATUS_PERF_DEGRADED";
+            case MUBLAS_STATUS_SIZE_QUERY_MISMATCH: return "MUBLAS_STATUS_SIZE_QUERY_MISMATCH";
+            case MUBLAS_STATUS_SIZE_INCREASED:      return "MUBLAS_STATUS_SIZE_INCREASED";
+            case MUBLAS_STATUS_SIZE_UNCHANGED:      return "MUBLAS_STATUS_SIZE_UNCHANGED";
+            case MUBLAS_STATUS_INVALID_VALUE:       return "MUBLAS_STATUS_INVALID_VALUE";
+            case MUBLAS_STATUS_CONTINUE:            return "MUBLAS_STATUS_CONTINUE";
+            case MUBLAS_STATUS_CHECK_NUMERICS_FAIL: return "MUBLAS_STATUS_CHECK_NUMERICS_FAIL";
+            default:                                return "unknown error";
         }
     }
-#endif // MUSART_VERSION >= 12000
 
 #define CUBLAS_CHECK(err) CUDA_CHECK_GEN(err, MUBLAS_STATUS_SUCCESS, cublas_get_error_str)
 

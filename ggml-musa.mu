@@ -1328,7 +1328,12 @@ static musaError_t ggml_cuda_Memcpy2DPeerAsync(
     p.srcDevice = srcDevice;
     p.srcPtr = make_musaPitchedPtr(src, spitch, spitch, height);
     p.extent = make_musaExtent(width, height, 1);
-    return musaMemcpy3DPeerAsync(&p, stream);
+
+    // TODO:
+    // musaMemcpy3DPeerAsync is currently not supported
+    // and Apollo SoC has only one GPU, so we shouldn't need this for now.
+    return musaErrorNotSupported;
+    // return musaMemcpy3DPeerAsync(&p, stream);
 }
 
 static void ggml_cuda_op_mul_mat(
@@ -1803,9 +1808,10 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
                 alpha, (const char *) src0_f16, MUSA_R_16F,   nb01/nb00, nb02/nb00,  // strideA
                        (const char *) src1_f16, MUSA_R_16F,   nb11/nb10, nb12/nb10,  // strideB
                 beta,  (      char *)    dst_t, cu_data_type, ne01,       nb2/nb0,   // strideC
+                       (      char *)    dst_t, cu_data_type, ne01,       nb2/nb0,   // strideD
                 ne12*ne13,
                 cu_compute_type,
-                MUBLAS_GEMM_DEFAULT_TENSOR_OP));
+                MUBLAS_GEMM_DEFAULT_TENSOR_OP, 0, 0));
     } else {
         // use mublasGemmBatchedEx
         const int ne23 = ne12*ne13;
@@ -1832,9 +1838,10 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
                 alpha, (const void **) (ptrs_src.get() + 0*ne23), MUSA_R_16F,   nb01/nb00,
                        (const void **) (ptrs_src.get() + 1*ne23), MUSA_R_16F,   nb11/nb10,
                 beta,  (      void **) (ptrs_dst.get() + 0*ne23), cu_data_type, ne01,
+                       (      void **) (ptrs_dst.get() + 0*ne23), cu_data_type, ne01,
                 ne23,
                 cu_compute_type,
-                MUBLAS_GEMM_DEFAULT_TENSOR_OP));
+                MUBLAS_GEMM_DEFAULT_TENSOR_OP, 0, 0));
     }
 #endif
 
