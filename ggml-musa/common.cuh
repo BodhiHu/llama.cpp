@@ -132,6 +132,13 @@ typedef float2 dfloat2;
 #define FP16_AVAILABLE
 #endif // __MUSA_ARCH__ >= CC_PASCAL
 
+// FIXME.bodhi: mcc will throw error `Unhandled spill element size! 20` when compile fattn-tile-f32
+#define FP32_NOT_AVAILABLE
+// Neccessary GEMM/Stream/VMM APIs needed by llama.cpp not implemented in MUSA
+#define GEMM_NOT_AVAILABLE
+#define STREAM_NOT_AVAILABLE
+#define VMM_NOT_AVAILABLE
+
 #if defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
 #define FAST_FP16_AVAILABLE
 #endif // defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
