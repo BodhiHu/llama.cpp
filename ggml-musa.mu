@@ -1166,7 +1166,7 @@ static musaError_t ggml_cuda_cpy_tensor_2d(
     }
 }
 
-#if !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#if !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
 static void ggml_cuda_op_mul_mat_cublas(
     ggml_backend_cuda_context & ctx,
     const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst, const char * src0_dd_i, const float * src1_ddf_i,
@@ -1266,7 +1266,7 @@ static void ggml_cuda_op_mul_mat_cublas(
     GGML_UNUSED(src1_ddq_i);
     GGML_UNUSED(src1_padded_row_size);
 }
-#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
 
 static void ggml_cuda_set_peer_access(const int n_tokens, int main_device) {
     static bool peer_access_enabled = false;
@@ -1709,7 +1709,7 @@ static __global__ void k_compute_batched_ptrs(
     ptrs_dst[0*ne23 + i12 + i13*ne12] = (      char *)         dst + i12*nbd2 + i13*nbd3;
 }
 
-#if !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#if !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
 static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
     GGML_ASSERT(!ggml_is_transposed(src0));
     GGML_ASSERT(!ggml_is_transposed(src1));
@@ -1853,7 +1853,7 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
         to_fp32_cuda(dst_f16.get(), dst_ddf, ne_dst, main_stream);
     }
 }
-#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
 
 static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
     const bool split = ggml_backend_buffer_is_cuda_split(src0->buffer);
@@ -1926,11 +1926,11 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
     } else if (!split && !fp16_performance_good && src0->type == GGML_TYPE_F16 && !ggml_is_contiguous(src0) && !ggml_is_transposed(src1) && src1->ne[1] == 1) {
         // KQV single-batch
         ggml_cuda_mul_mat_vec_nc(ctx, src0, src1, dst);
-#if !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#if !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
     } else if (!split && src0->type == GGML_TYPE_F16 && (src1->type == GGML_TYPE_F16 || fp16_performance_good) && !ggml_is_transposed(src0) && !ggml_is_transposed(src1) && src1->ne[2]*src1->ne[3] > 1) {
         // KQ + KQV multi-batch
         ggml_cuda_mul_mat_batched_cublas(ctx, src0, src1, dst);
-#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
     } else if (use_dequantize_mul_mat_vec) {
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_dequantize_mul_mat_vec, nullptr);
     } else if (use_mul_mat_vec_q) {
@@ -1938,11 +1938,11 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
     } else if (use_mul_mat_q) {
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_q, quantize_mmq_q8_1_cuda);
     } else {
-#if !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#if !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_cublas, nullptr);
 #else
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_q, quantize_mmq_q8_1_cuda);
-#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(STREAM_NOT_AVAILABLE)
+#endif // !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
     }
 }
 
