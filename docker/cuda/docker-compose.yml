@@ -2,11 +2,11 @@ version: '3'
 services:
   cuda-llama.cpp:
     build:
-      context: .
-      dockerfile: Dockerfile.cuda
+      context: ../..
+      dockerfile: docker/cuda/Dockerfile.cuda
     volumes:
-      - .:/app
-      - .ollama:/root.ollama
+      - ../..:/app
+      - ../../._ollama:/root.ollama
     ports:
       - 16888:16888
     command: ./_apps/ollama/ollama serve
