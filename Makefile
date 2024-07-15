@@ -917,6 +917,8 @@ clean:
 	rm -vrf *.o tests/*.o *.so *.a *.dll common/build-info.cpp *.dot $(COV_TARGETS) $(BUILD_TARGETS) $(TEST_TARGETS)
 	rm -vrf ggml-cuda/*.o
 	rm -vrf ggml-cuda/template-instances/*.o
+	rm -vrf ggml-musa/*.o
+	rm -vrf ggml-musa/template-instances/*.o
 	find examples pocs -type f -name "*.o" -delete
 
 #

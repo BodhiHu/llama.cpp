@@ -41,7 +41,7 @@ static __global__ void flash_attn_tile_ext_f32(
         const int ne2,
         const int ne3) {
 // FIXME.bodhi: mcc will throw error `Unhandled spill element size! 20` when compile fattn-tile-f32
-#if !defined(FP32_NOT_AVAILABLE)
+#if !defined(FATTN_TILE_F32_NOT_AVAILABLE)
     //In this kernel Q, K, V are matrices while i, j, k are matrix indices.
 
     const int ic0 = (blockIdx.x / parallel_blocks) * ncols; // Index of the Q/QKV column to work on.
@@ -266,7 +266,7 @@ static __global__ void flash_attn_tile_ext_f32(
     }
 #else
    NO_DEVICE_CODE;
-#endif // FP32_NOT_AVAILABLE
+#endif // FATTN_TILE_F32_NOT_AVAILABLE
 }
 
 template <int cols_per_block, int parallel_blocks>
