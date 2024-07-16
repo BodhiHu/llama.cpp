@@ -518,7 +518,7 @@ ifdef LLAMA_MUSA
 	OBJS         += ggml-musa.o
 	OBJS         += $(patsubst %.mu,%.o,$(wildcard ggml-musa/*.mu))
 	OBJS         += $(OBJS_MUSA_TEMP_INST)
-	MK_MCCFLAGS  += -ffast-math -fPIC
+	MK_MCCFLAGS  += -ffast-math -fPIC --offload-arch=mp_22
 ifdef LLAMA_FATAL_WARNINGS
 	MK_MCCFLAGS += -Werror all-warnings
 endif # LLAMA_FATAL_WARNINGS

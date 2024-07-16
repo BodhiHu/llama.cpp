@@ -320,7 +320,7 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
 #if !defined(FATTN_TILE_F32_NOT_AVAILABLE)
             ggml_cuda_flash_attn_ext_tile_f32(ctx, dst);
 #else
-        GGML_CUDA_LOG_ERROR("%s: ggml_cuda_flash_attn_ext_tile_f32 not available\n", __func__);
+        printf("ERROR: %s: ggml_cuda_flash_attn_ext_tile_f32 not available\n", __func__);
         GGML_ASSERT(false);
 #endif
         }

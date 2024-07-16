@@ -123,8 +123,11 @@ static musaError_t ggml_cuda_device_malloc(void ** ptr, size_t size, int device)
     ggml_cuda_set_device(device);
     size_t freeMem = 0, totalMem = 0;
     musaMemGetInfo(&freeMem, &totalMem);
-    GGML_CUDA_LOG_INFO("%s: trying to malloc device[%d] %d mem: \n  free: %d total: %d\n",
-        __func__, device, size, freeMem, totalMem
+    GGML_CUDA_LOG_INFO("%s: trying to malloc device[%d] %.2f MiB: free = %.2f MiB, total = %.2f MiB\n",
+        __func__, device,
+        size / 1024.0 / 1024.0,
+        freeMem / 1024.0 / 1024.0,
+        totalMem / 1024.0 / 1024.0
     );
     return musaMalloc(ptr, size);
 }
