@@ -1960,8 +1960,6 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
 #if !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_cublas, nullptr);
 #else
-        // GGML_CUDA_LOG_WARN("%s: ggml_cuda_op_mul_mat_cublas is not available, will fallback to ggml_cuda_op_mul_mat_q.\n", __func__);
-        // ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_q, quantize_mmq_q8_1_cuda);
         GGML_CUDA_LOG_ERROR("%s: ggml_cuda_op_mul_mat_cublas is not available.\n", __func__);
         GGML_ASSERT(false);
 #endif // !defined(GEMM_NOT_AVAILABLE) && !defined(MUBLAS_NOT_AVAILABLE)
