@@ -266,7 +266,7 @@ static __global__ void flash_attn_tile_ext_f32(
     }
 #else
    NO_DEVICE_CODE;
-#endif // FATTN_TILE_F32_NOT_AVAILABLE
+#endif // !defined(FATTN_TILE_F32_NOT_AVAILABLE)
 }
 
 template <int cols_per_block, int parallel_blocks>

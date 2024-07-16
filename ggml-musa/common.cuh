@@ -138,6 +138,7 @@ typedef float2 dfloat2;
 #define GEMM_NOT_AVAILABLE
 #define MUBLAS_NOT_AVAILABLE
 #define VMM_NOT_AVAILABLE
+#define MUSA_DEBUG
 
 #if defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
 #define FAST_FP16_AVAILABLE
