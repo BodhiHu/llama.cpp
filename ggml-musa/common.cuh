@@ -133,12 +133,17 @@ typedef float2 dfloat2;
 #endif // __MUSA_ARCH__ >= CC_PASCAL
 
 // FIXME.bodhi:
-// mcc will throw error `shared memory (37524) exceeds limit (28672)` when compile fattn-tile-f32
+//   This error have been fixed, should remove this:
+//   mcc will throw error `shared memory (37524) exceeds limit (28672)` when compile fattn-tile-f32
 // #define FATTN_TILE_F32_NOT_AVAILABLE
-// Neccessary GEMM/Stream/VMM APIs needed by llama.cpp not implemented in MUSA
+
+// Neccessary Mublas/GEMM APIs needed by llama.cpp not implemented in MUSA
 #define GEMM_NOT_AVAILABLE
 #define MUBLAS_NOT_AVAILABLE
+
+// VMM APIs not available on Musa:
 #define VMM_NOT_AVAILABLE
+
 #define MUSA_DEBUG
 
 #if defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610

@@ -1226,7 +1226,7 @@ static void ggml_cuda_op_mul_mat_cublas(
         const half alpha_f16 = 1.0f;
         const half beta_f16 = 0.0f;
 
-        CUBLAS_CHECK(AVAILABLE(ctx.cublas_handle(id), stream));
+        CUBLAS_CHECK(mublasSetStream(ctx.cublas_handle(id), stream));
         CUBLAS_CHECK(
             mublasGemmEx(ctx.cublas_handle(id), MUBLAS_OP_T, MUBLAS_OP_N,
                     row_diff, src1_ncols, ne10,
