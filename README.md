@@ -516,6 +516,15 @@ Building the program with BLAS support may lead to some performance improvements
   | LLAMA_CUDA_PEER_MAX_BATCH_SIZE | Positive integer       | 128     | Maximum batch size for which to enable peer access between multiple GPUs. Peer access requires either Linux or NVLink. When using NVLink enabling peer access for larger batch sizes is potentially beneficial.                                                                         |
   | LLAMA_CUDA_FA_ALL_QUANTS       | Boolean                | false   | Compile support for all KV cache quantization type (combinations) for the FlashAttention CUDA kernels. More fine-grained control over KV cache size but compilation takes much longer.                                                                                                  |
 
+- #### Musa
+
+  This provvides GPU acceleration with the MUSA cores of your MThreads GPU. Make sure you have the Musa SDK installed(>= 2.1.0).
+  - Using `make`:
+    ```bash
+    source docker/musa/env
+    make LLAMA_MUSA=1 -j8
+    ```
+
 - #### hipBLAS
 
   This provides BLAS acceleration on HIP-supported AMD GPUs.
