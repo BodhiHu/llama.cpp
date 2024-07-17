@@ -514,7 +514,7 @@ endif # LLAMA_MUSA_FA_ALL_QUANTS
 ifdef LLAMA_MUSA
 	MUSA_PATH ?= /usr/local/musa
 	MK_CPPFLAGS  += -DGGML_USE_MUSA -I$(MUSA_PATH)/include
-	MK_LDFLAGS   += -lmusart -L$(MUSA_PATH)/lib -lpthread -ldl -lrt -L/usr/lib64 -L/usr/lib/wsl/lib
+	MK_LDFLAGS   += -lmusart -lmublas -L$(MUSA_PATH)/lib -lpthread -ldl -lrt -L/usr/lib64 -L/usr/lib/wsl/lib
 	OBJS         += ggml-musa.o
 	OBJS         += $(patsubst %.mu,%.o,$(wildcard ggml-musa/*.mu))
 	OBJS         += $(OBJS_MUSA_TEMP_INST)
