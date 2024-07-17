@@ -139,7 +139,8 @@ typedef float2 dfloat2;
 
 // Neccessary Mublas/GEMM APIs needed by llama.cpp not implemented in MUSA
 // #define MUBLAS_NOT_AVAILABLE
-#define GEMM_NOT_AVAILABLE
+// #define GEMM_NOT_AVAILABLE
+#define GEMM_BATCHED_EX_NOT_AVAILABLE
 
 // VMM APIs not available on Musa:
 #define VMM_NOT_AVAILABLE

@@ -1790,7 +1790,7 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
     const int64_t r2 = ne12/ne02;
     const int64_t r3 = ne13/ne03;
 
-#if 0
+#if defined(GEMM_BATCHED_EX_NOT_AVAILABLE)
     // use mublasGemmEx
     {
         for (int i13 = 0; i13 < ne13; ++i13) {
@@ -1799,13 +1799,13 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
                 int i02 = i12 / r2;
 
                 CUBLAS_CHECK(
-                        mublasGemmEx(g_cublas_handles[g_main_device], MUBLAS_OP_T, MUBLAS_OP_N,
-                            ne01, ne11, ne10,
-                            alpha, (const char *) src0_as_f16 + i02*src0->nb[2]   + i03*src0->nb[3]  , MUSA_R_16F,   nb01/sizeof(half),
-                                   (const char *) src1_as_f16 + i12*src1->nb[2]/2 + i13*src1->nb[3]/2, MUSA_R_16F,   nb11/sizeof(float),
-                            beta,  (      char *)       dst_t + i12*nbd2          + i13*nbd3,          cu_data_type, ne01,
-                            cu_compute_type,
-                            MUBLAS_GEMM_DEFAULT_TENSOR_OP));
+                mublasGemmEx(ctx.cublas_handle(), MUBLAS_OP_T, MUBLAS_OP_N,
+                    ne01, ne11, ne10,
+                    alpha, (const char *) src0_f16 + i02*src0->nb[2]   + i03*src0->nb[3]  , MUSA_R_16F,   nb01/sizeof(half),
+                           (const char *) src1_f16 + i12*src1->nb[2]/2 + i13*src1->nb[3]/2, MUSA_R_16F,   nb11/sizeof(float),
+                    beta,  (      char *)       dst_t + i12*nbd2          + i13*nbd3,          cu_data_type, ne01,
+                    cu_compute_type,
+                    MUBLAS_GEMM_DEFAULT_TENSOR_OP));
             }
         }
     }
