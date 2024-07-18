@@ -40,7 +40,7 @@ static __global__ void flash_attn_tile_ext_f32(
         const int ne1,
         const int ne2,
         const int ne3) {
-#if !defined(FATTN_TILE_F32_NOT_AVAILABLE)
+
     //In this kernel Q, K, V are matrices while i, j, k are matrix indices.
 
     const int ic0 = (blockIdx.x / parallel_blocks) * ncols; // Index of the Q/QKV column to work on.
@@ -263,9 +263,6 @@ static __global__ void flash_attn_tile_ext_f32(
             dst_meta[(ic0 + j_VKQ)*gridDim.y*parallel_blocks + blockIdx.y*parallel_blocks + ip] = make_float2(kqmax[j_VKQ_0/nwarps], kqsum_j);
         }
     }
-#else
-   NO_DEVICE_CODE;
-#endif // !defined(FATTN_TILE_F32_NOT_AVAILABLE)
 }
 
 template <int cols_per_block, int parallel_blocks>

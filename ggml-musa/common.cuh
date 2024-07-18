@@ -132,20 +132,11 @@ typedef float2 dfloat2;
 #define FP16_AVAILABLE
 #endif // __MUSA_ARCH__ >= CC_PASCAL
 
-// FIXME.bodhi:
-//   This error have been fixed, should remove this:
-//   mcc will throw error `shared memory (37524) exceeds limit (28672)` when compile fattn-tile-f32
-// #define FATTN_TILE_F32_NOT_AVAILABLE
-
-// Neccessary Mublas/GEMM APIs needed by llama.cpp not implemented in MUSA
-// #define MUBLAS_NOT_AVAILABLE
-// #define GEMM_NOT_AVAILABLE
+// TODO: gemm batched ex implementing in MUSA
 #define GEMM_BATCHED_EX_NOT_AVAILABLE
 
 // VMM APIs not available on Musa:
 #define VMM_NOT_AVAILABLE
-
-#define MUSA_DEBUG
 
 #if defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
 #define FAST_FP16_AVAILABLE
@@ -593,11 +584,9 @@ struct ggml_backend_cuda_context {
                     CUDA_CHECK(musaStreamDestroy(streams[i][j]));
                 }
             }
-#if !defined(MUBLAS_NOT_AVAILABLE)
             if (cublas_handles[i] != nullptr) {
                 CUBLAS_CHECK(mublasDestroy(cublas_handles[i]));
             }
-#endif // !defined(MUBLAS_NOT_AVAILABLE)
         }
     }
 
@@ -613,7 +602,6 @@ struct ggml_backend_cuda_context {
         return stream(device, 0);
     }
 
-#if !defined(MUBLAS_NOT_AVAILABLE)
     mublasHandle_t cublas_handle(int device) {
         if (cublas_handles[device] == nullptr) {
             ggml_cuda_set_device(device);
@@ -626,7 +614,6 @@ struct ggml_backend_cuda_context {
     mublasHandle_t cublas_handle() {
         return cublas_handle(device);
     }
-#endif // !defined(MUBLAS_NOT_AVAILABLE)
 
     // pool
     std::unique_ptr<ggml_cuda_pool> pools[GGML_CUDA_MAX_DEVICES];
