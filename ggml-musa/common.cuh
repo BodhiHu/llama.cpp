@@ -22,20 +22,16 @@
 #include <mublas.h>
 #include <musa_fp16.h>
 
-#if MUSART_VERSION < 11020
 #define MU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED MU_DEVICE_ATTRIBUTE_VIRTUAL_ADDRESS_MANAGEMENT_SUPPORTED
 #define MUBLAS_TF32_TENSOR_OP_MATH MUBLAS_MATH_MODE_TENSOR_OP
 #define MUBLAS_COMPUTE_16F MUSA_R_16F
 #define MUBLAS_COMPUTE_32F MUSA_R_32F
 #define mublasComputeType_t musaDataType_t
-#endif // MUSART_VERSION < 11020
 
 #define STRINGIZE_IMPL(...) #__VA_ARGS__
 #define STRINGIZE(...) STRINGIZE_IMPL(__VA_ARGS__)
 
 #define WARP_SIZE 32
-#define CUDART_HMAX   11070 // CUDA 11.7, min. ver. for which __hmax and __hmax2 are known to work (may be higher than needed)
-#define CUDART_HMASK  12000 // CUDA 12.0, min. ver. for half2 -> uint mask comparisons
 
 #define CC_PASCAL     600
 #define MIN_CC_DP4A   610 // minimum compute capability for __dp4a, an intrinsic for byte-wise dot products
@@ -114,11 +110,7 @@ static const char * cu_get_error_str(MUresult err) {
 }
 #define CU_CHECK(err) CUDA_CHECK_GEN(err, MUSA_SUCCESS, cu_get_error_str)
 
-#if MUSART_VERSION >= 11100
-#define GGML_CUDA_ASSUME(x) __builtin_assume(x)
-#else
 #define GGML_CUDA_ASSUME(x)
-#endif // MUSART_VERSION >= 11100
 
 #ifdef GGML_CUDA_F16
 typedef half dfloat; // dequantize float
@@ -220,13 +212,7 @@ static __device__ __forceinline__ float warp_reduce_max(float x) {
 
 static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b) {
 #ifdef FP16_AVAILABLE
-
-#if MUSART_VERSION < CUDART_HMAX
     return __float2half(fmaxf(__half2float(a), __half2float(b)));
-#else
-    return __hmax(a, b);
-#endif // MUSART_VERSION < CUDART_HMAX
-
 #else
    NO_DEVICE_CODE;
    GGML_UNUSED(b);
@@ -235,14 +221,10 @@ static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b
 }
 
 static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const half2 b) {
-#if MUSART_VERSION >= CUDART_HMAX
-    return __hmax2(a, b);
-#else
     half2 ret;
     reinterpret_cast<half&>(ret.x) = __float2half(fmaxf( __low2float(a),  __low2float(b)));
     reinterpret_cast<half&>(ret.y) = __float2half(fmaxf(__high2float(a), __high2float(b)));
     return ret;
-#endif // MUSART_VERSION >= CUDART_HMAX
 }
 
 static __device__ __forceinline__ half2 warp_reduce_max(half2 x) {
@@ -258,13 +240,11 @@ static __device__ __forceinline__ half2 warp_reduce_max(half2 x) {
 #endif // __MUSA_ARCH__ >= CC_PASCAL
 }
 
-#if MUSART_VERSION < CUDART_HMASK
 static __device__ __forceinline__ uint32_t __hgt2_mask(const half2 a, const half2 b) {
     const uint32_t mask_low  = 0x0000FFFF * (float( __low2half(a)) > float( __low2half(b)));
     const uint32_t mask_high = 0xFFFF0000 * (float(__high2half(a)) > float(__high2half(b)));
     return mask_low | mask_high;
 }
-#endif // MUSART_VERSION < 12000
 
 // TODO: move to ggml-common.h
 static const __device__ int8_t kvalues_iq4nl[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
@@ -521,11 +501,6 @@ struct ggml_tensor_extra_gpu {
     void * data_device[GGML_CUDA_MAX_DEVICES]; // 1 pointer for each device for split tensors
     musaEvent_t events[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS]; // events for synchronizing multiple GPUs
 };
-
-
-#if (MUSART_VERSION >= 12000) && defined(GGML_CUDA_USE_GRAPHS)
-#define USE_CUDA_GRAPH
-#endif
 
 struct ggml_graph_node_properties {
     void * node_address;

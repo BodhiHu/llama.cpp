@@ -3002,20 +3002,7 @@ GGML_CALL bool ggml_backend_cuda_register_host_buffer(void * buffer, size_t size
         return false;
     }
 
-#if MUSART_VERSION >= 11100
-    musaError_t err = musaHostRegister(buffer, size, musaHostRegisterPortable | musaHostRegisterReadOnly);
-    if (err != musaSuccess) {
-        // clear the error
-        musaGetLastError();
-
-        GGML_CUDA_LOG_WARN("%s: failed to register %.2f MiB of pinned memory: %s\n", __func__,
-                           size / 1024.0 / 1024.0, musaGetErrorString(err));
-        return false;
-    }
-    return true;
-#else
     return false;
-#endif
 }
 
 GGML_CALL void ggml_backend_cuda_unregister_host_buffer(void * buffer) {
