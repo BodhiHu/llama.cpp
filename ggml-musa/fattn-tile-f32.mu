@@ -114,7 +114,8 @@ static __global__ void flash_attn_tile_ext_f32(
 
         float sum[FATTN_KQ_STRIDE_TILE_F32/WARP_SIZE][ncols/nwarps] = {{0.0f}};
 
-#pragma unroll
+// FIXME.bodhi: mcc will throw error "Segmentation fault"
+// #pragma unroll
         for (int k_KQ = 0; k_KQ < D; ++k_KQ) {
             float K_k[FATTN_KQ_STRIDE_TILE_F32/WARP_SIZE];
             float Q_k[ncols/nwarps];
