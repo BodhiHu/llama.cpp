@@ -127,6 +127,9 @@ typedef float2 dfloat2;
 // TODO: gemm batched ex implementing in MUSA
 #define GEMM_BATCHED_EX_NOT_AVAILABLE
 
+// TODO: peer copy not supported by MUSA yet
+#define GGML_CUDA_NO_PEER_COPY
+
 // VMM APIs not available on Musa:
 #define VMM_NOT_AVAILABLE
 

@@ -525,6 +525,8 @@ Building the program with BLAS support may lead to some performance improvements
     make LLAMA_MUSA=1 -j8
     ```
 
+  The environment variable `MUSA_VISIBLE_DEVICES` can be used to specify which GPU(s) will be used.
+
 - #### hipBLAS
 
   This provides BLAS acceleration on HIP-supported AMD GPUs.
