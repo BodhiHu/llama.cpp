@@ -1916,6 +1916,9 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
     use_dequantize_mul_mat_vec = use_dequantize_mul_mat_vec && !use_mul_mat_vec_q;
 #endif // GGML_CUDA_FORCE_DMMV
 
+    // use_dequantize_mul_mat_vec = false;
+    // use_mul_mat_vec_q = true;
+
     // debug helpers
     // printf("DEBUG: ggml_tensor src0, src1 info--------------------------------------------------\n");
     // printf("src0: %8d %8d %8d %8d\n", src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3]);

@@ -120,10 +120,6 @@ typedef float dfloat; // dequantize float
 typedef float2 dfloat2;
 #endif //GGML_CUDA_F16
 
-#if __MUSA_ARCH__ >= CC_PASCAL
-#define FP16_AVAILABLE
-#endif // __MUSA_ARCH__ >= CC_PASCAL
-
 // TODO: gemm batched ex implementing in MUSA
 #define GEMM_BATCHED_EX_NOT_AVAILABLE
 
@@ -133,9 +129,8 @@ typedef float2 dfloat2;
 // VMM APIs not available on Musa:
 #define VMM_NOT_AVAILABLE
 
-#if defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
+#define FP16_AVAILABLE
 #define FAST_FP16_AVAILABLE
-#endif // defined(FP16_AVAILABLE) && __MUSA_ARCH__ != 610
 
 #if __MUSA_ARCH__ >= CC_VOLTA
 #define FP16_MMA_AVAILABLE
@@ -146,7 +141,8 @@ typedef float2 dfloat2;
 #endif // __MUSA_ARCH__ >= CC_TURING
 
 static bool fast_fp16_available(const int cc) {
-    return cc >= CC_PASCAL && cc != 610;
+    // return cc >= CC_PASCAL && cc != 610;
+    return true;
 }
 
 static bool fp16_mma_available(const int cc) {
@@ -156,6 +152,81 @@ static bool fp16_mma_available(const int cc) {
 static bool int8_mma_available(const int cc) {
     return cc < CC_OFFSET_AMD && cc >= CC_TURING;
 }
+
+// FIXME: MUSA unsupported compute APIs, reimplemented in c++: ################
+__device__ __half hexp(const __half a) {
+    // in musa sdk musa_fp16.hpp
+
+    __half val;
+
+    // Convert __half to float
+    float f_a = __half2float(a);
+
+    // Compute exponential function using CUDA's native functions
+    float f_result = expf(f_a);
+
+    // Convert float result back to __half
+    val = __float2half(f_result);
+
+    return val;
+}
+
+// // should be placed in musa sdk __clang_musa_device_functions.h
+// __DEVICE__ unsigned int __vsubss4(unsigned int __a, unsigned int __b) {
+//     // unsigned int r;
+//     // __asm__("vsub4.s32.s32.s32.sat %0,%1,%2,%3;"
+//     //         : "=r"(r)
+//     //         : "r"(__a), "r"(__b), "r"(0));
+//     // return r;
+
+//     unsigned int r = 0;
+
+//     // Iterate over each 8-bit segment
+//     for (int i = 0; i < 4; ++i)
+//     {
+//         int8_t a_segment = (__a >> (i * 8)) & 0xFF; // Extract 8-bit segment from __a
+//         int8_t b_segment = (__b >> (i * 8)) & 0xFF; // Extract 8-bit segment from __b
+
+//         // Perform subtraction with saturation
+//         int16_t result = static_cast<int16_t>(a_segment) - static_cast<int16_t>(b_segment);
+
+//         // Saturate the result to fit in 8 bits
+//         if (result > INT8_MAX)
+//         {
+//             result = INT8_MAX;
+//         }
+//         else if (result < INT8_MIN)
+//         {
+//             result = INT8_MIN;
+//         }
+
+//         // Store the saturated result back into the corresponding segment of r
+//         r |= (static_cast<unsigned int>(result) & 0xFF) << (i * 8);
+//     }
+
+//     return r;
+// }
+
+// // TODO: not implemented yet, in musa sdk __clang_musa_device_functions.h
+// // required for mul_mat_vec_q
+// __DEVICE__ unsigned int __vsub4(unsigned int __a, unsigned int __b) {
+//   ...
+// }
+
+// // TODO: not implemented yet, in musa sdk __clang_musa_device_functions.h
+// // required for mul_mat_vec_q
+// __DEVICE__ unsigned int __vseteq4(unsigned int __a, unsigned int __b) {
+//   ...
+// }
+
+__device__ __half2 h2exp(const __half2 a) {
+    __half2 result;
+    result.x = hexp(a.x);
+    result.y = hexp(a.y);
+    return result;
+}
+
+// ###########################################################################################
 
 [[noreturn]]
 static __device__ void no_device_code(
