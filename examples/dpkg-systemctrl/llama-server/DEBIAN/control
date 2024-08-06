@@ -1,0 +1,8 @@
+Package: llama-server
+Version: 0.0.5
+Architecture: all
+Essential: no
+Priority: optional
+#Depends: curl,zenity
+Maintainer: MT Dev
+Description: llama systemd server deb package

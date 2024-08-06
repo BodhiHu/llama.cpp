@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -x
+set +e
+
+systemctl --user stop llama-server.service 1>/dev/null
+
+mkdir -p $HOME/.config/systemd/user
+cp -f /etc/llama-server/llama-server.service $HOME/.config/systemd/user/
+
+systemctl --user daemon-reload
+# systemctl --user enable llama-server.service
+systemctl --user start llama-server.service

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Add users to render/video groups
+for dir in /home/*; do
+  if [ -d "$dir" ]; then
+    user="$(basename "$dir")"
+    printf "Adding user $user to render and video groups\n"
+    set +e
+    usermod -aG render ${user}
+    usermod -aG video ${user}
+    set -e
+  fi
+done
+
+printf "
+Install success.
+"

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+printf "\nInstalling with env:
+  USER=${USER} HOME=${HOME}
+"
