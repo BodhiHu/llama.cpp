@@ -198,6 +198,12 @@ The following compilation options are also available to tweak performance:
 
 ### MUSA
 
+First you need to install the [MUSA SDK](https://developer.mthreads.com/musa/musa-sdk), then add MUSA SDK to your env:
+```
+export PATH=/usr/local/musa/bin:${PATH}
+export LD_LIBRARY_PATH=/usr/local/musa/lib:${LD_LIBRARY_PATH}
+```
+
 - Using `make`:
   ```bash
   make GGML_MUSA=1

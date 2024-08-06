@@ -1,0 +1,22 @@
+version: '3'
+services:
+  cuda-llama.cpp:
+    build:
+      context: ../../..
+      dockerfile: docker/cuda/Dockerfile.cuda
+    volumes:
+      - ../../..:/app
+      - ../../../../models/:/models
+    network_mode: host
+    restart: no
+    environment:
+      - HOST=0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            # use all GPUs or the specified ones:
+            # device_ids: ['0','1','2','3']
+            device_ids: ['0']
+            capabilities: [gpu]

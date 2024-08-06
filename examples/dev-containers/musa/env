@@ -1,0 +1,4 @@
+export PATH=/usr/local/musa/bin:${PATH}
+export LD_LIBRARY_PATH=/usr/local/musa/lib:${LD_LIBRARY_PATH}
+export MUSA_MEMCPY_PATH=2
+
