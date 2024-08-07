@@ -1,5 +1,5 @@
 Package: llama-server
-Version: 0.0.5
+Version: 0.0.7
 Architecture: all
 Essential: no
 Priority: optional

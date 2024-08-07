@@ -1,0 +1,7 @@
+#!/bin/bash
+
+export LD_LIBRARY_PATH=/usr/local/llama-server/lib:${LD_LIBRARY_PATH}
+export MUSA_MEMCPY_PATH=2
+export LLM_MODEL="/usr/local/llama-server/qwen2-1_5b-instruct-q8_0.gguf"
+
+/usr/local/llama-server/llama-cli -m $LLM_MODEL -ngl 100000 -fa -cnv -p "你是AI摩宝，一个友爱的AI智能助手。" -c 512

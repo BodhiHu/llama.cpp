@@ -3,5 +3,5 @@
 ## Build .deb
 
 ```
-dpkg-deb --build -Znone -Snone mt-llama
+dpkg-deb --build -Znone -Snone llama-server
 ```

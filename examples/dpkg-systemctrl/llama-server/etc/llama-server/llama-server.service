@@ -3,10 +3,10 @@ Description=MT llama LLM service
 
 [Service]
 Type=simple
-Environment=LD_LIBRARY_PATH=/usr/local/llama-server/lib:${LD_LIBRARY_PATH} MUSA_MEMCPY_PATH=2 PORT=26137 LLM_MODEL="/usr/local/llama-server/Phi-3-mini-4k-instruct-q4.gguf"
-ExecStart=/usr/local/llama-server/llama-server -m $LLM_MODEL -n 200 -ngl 10000 -fa --embeddings -cnv --port $PORT
-#Restart=always
-#RestartSec=3
+Environment=LD_LIBRARY_PATH=/usr/local/llama-server/lib:${LD_LIBRARY_PATH} MUSA_MEMCPY_PATH=2 HOST=0.0.0.0 PORT=26137 LLM_MODEL="/usr/local/llama-server/qwen2-1_5b-instruct-q8_0.gguf"
+ExecStart=/usr/local/llama-server/llama-server -m $LLM_MODEL -ngl 10000 -fa -cnv --host $HOST --port $PORT 
+Restart=always
+RestartSec=5
 CPUQuota=0
 
 [Install]
