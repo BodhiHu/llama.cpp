@@ -2,3 +2,6 @@
 *.deb
 *.so
 *.so.*
+
+llama-server/usr/local/llama-server/llama-cli
+llama-server/usr/local/llama-server/llama-server
