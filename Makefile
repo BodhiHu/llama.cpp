@@ -80,6 +80,11 @@ GGML_CUDA := 1
 DEPRECATE_WARNING := 1
 endif
 
+ifdef LLAMA_MUSA
+GGML_MUSA := 1
+DEPRECATE_WARNING := 1
+endif
+
 ifdef LLAMA_KOMPUTE
 GGML_KOMPUTE := 1
 DEPRECATE_WARNING := 1
@@ -997,6 +1002,7 @@ ifdef DEPRECATE_WARNING
 $(info !!! DEPRECATION WARNING !!!)
 $(info The following LLAMA_ options are deprecated and will be removed in the future. Use the GGML_ prefix instead)
 $(info   - LLAMA_CUDA)
+$(info   - LLAMA_MUSA)
 $(info   - LLAMA_METAL)
 $(info   - LLAMA_METAL_EMBED_LIBRARY)
 $(info   - LLAMA_OPENMP)
