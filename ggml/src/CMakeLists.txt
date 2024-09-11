@@ -253,17 +253,10 @@ if (GGML_BLAS)
     endif()
 endif()
 
-if (GGML_LLAMAFILE)
-    message(STATUS "Using llamafile")
-
-    add_compile_definitions(GGML_USE_LLAMAFILE)
-
-    set(GGML_HEADERS_LLAMAFILE llamafile/sgemm.h)
-    set(GGML_SOURCES_LLAMAFILE llamafile/sgemm.cpp)
-endif()
-
 if (GGML_TMAC)
     message(STATUS "Using TMAC")
+
+    set(GGML_LLAMAFILE OFF)
 
     find_package(TMAC)
 
@@ -272,8 +265,8 @@ if (GGML_TMAC)
 
         add_compile_definitions(GGML_USE_TMAC)
 
-        set(GGML_HEADERS_TMAC tmac/ggml-tmac.h)
-        set(GGML_SOURCES_TMAC tmac/ggml-tmac.cpp)
+        set(GGML_HEADERS_TMAC tmac/tmac.h)
+        set(GGML_SOURCES_TMAC tmac/tmac.cpp)
 
         link_directories(${TMAC_LIB_DIR})
 
@@ -292,6 +285,15 @@ if (GGML_TMAC)
     else()
         message(WARNING "TMAC not found")
     endif()
+endif()
+
+if (GGML_LLAMAFILE)
+    message(STATUS "Using llamafile")
+
+    add_compile_definitions(GGML_USE_LLAMAFILE)
+
+    set(GGML_HEADERS_LLAMAFILE llamafile/sgemm.h)
+    set(GGML_SOURCES_LLAMAFILE llamafile/sgemm.cpp)
 endif()
 
 if (GGML_CUDA)

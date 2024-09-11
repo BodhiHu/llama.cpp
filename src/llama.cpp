@@ -34,7 +34,7 @@
 #endif
 
 #ifdef GGML_USE_TMAC
-#  include "ggml-tmac.h"
+#  include "tmac/tmac.h"
 #endif
 
 // TODO: replace with ggml API call
@@ -14437,17 +14437,11 @@ static void llama_graph_compute(
     }
 #endif
 
-#ifdef GGML_USE_TMAC
-    #ifdef TMAC_USE_TVM_THREADPOOL
-        ggml_tmac_set_n_threads(n_threads);
-        n_threads = 1;
-    #endif
-#endif
-
     if (lctx.backend_cpu != nullptr) {
         ggml_backend_cpu_set_n_threads(lctx.backend_cpu, n_threads);
         ggml_backend_cpu_set_abort_callback(lctx.backend_cpu, lctx.abort_callback, lctx.abort_callback_data);
     }
+
 #ifdef GGML_USE_BLAS
     if (lctx.backend_blas != nullptr) {
         ggml_backend_blas_set_n_threads(lctx.backend_blas, n_threads);

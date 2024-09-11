@@ -136,7 +136,7 @@ typedef pthread_t ggml_thread_t;
 #endif
 
 #if defined(GGML_USE_TMAC)
-#include "ggml-tmac.h"
+#include "tmac/tmac.h"
 #endif
 
 #if defined(__APPLE__)
@@ -12361,9 +12361,10 @@ static void ggml_compute_forward_mul_mat(
 
 #if defined(GGML_USE_TMAC)
     if (ggml_tmac_can_mul_mat(src0, src1, dst)) {
-        if (params->type == GGML_TASK_TYPE_FINALIZE) {
-            return;
-        }
+        // if (params->type == GGML_TASK_TYPE_FINALIZE) {
+        //     return;
+        // }
+        ggml_barrier(params->shared);
 
         const int bits = ggml_tmac_get_type_bits(type);
         // src0: weight,     ne00 = k, ne01 = n
@@ -12381,10 +12382,11 @@ static void ggml_compute_forward_mul_mat(
         tmac_float_type * lut_biases = (tmac_float_type *) (lut_scales + wt->lut_scales_size * ne11);
 
         // g = 4
-        if (params->type == GGML_TASK_TYPE_INIT) {
-            if (ith != 0) {
-                return;
-            }
+        if (src1->type != vec_dot_type) {
+        // if (params->type == GGML_TASK_TYPE_INIT) {
+        //  if (ith != 0) {
+        //      return;
+        //  }
             // Transform tensor if not already transformed
             // Although we have done this in file `llama.cpp`,
             // we still need to do it here for non-model inference, e.g., test-backend-ops.cpp.
@@ -12407,7 +12409,8 @@ static void ggml_compute_forward_mul_mat(
                                             ne01, ne00, 1, bits);
             }
 
-            return;
+            ggml_barrier(params->shared);
+            // return;
         }
 
         tmac_float_type * act_output;
@@ -12416,28 +12419,7 @@ static void ggml_compute_forward_mul_mat(
         } else {
             act_output = dst->data;
         }
-#if defined(TMAC_USE_TVM_THREADPOOL)
-        if (ith != 0) {
-            return;
-        }
-        // TODO: schedule ne11(m) in T-MAC
-        for (int ine11 = 0; ine11 < ne11; ine11++) {
-            const int qlut_offset       = ne10 * ine11 * 4;
-            const int lut_scales_offset = wt->lut_scales_size * ine11;
-            const int dst_offset        = ne0 * ine11;
 
-            ggml_tmac_mul_mat_task_compute(wt->qweights,
-                                           wt->scales,
-                                           qlut + qlut_offset,
-                                           lut_scales + lut_scales_offset,
-                                           lut_biases + lut_scales_offset,
-                                           act_output + dst_offset,
-                                           ne01, ne00, 1, bits);
-        }
-        if (sizeof(tmac_float_type) == 2) {
-            ggml_fp16_to_fp32_row(tmac_f_ptr, dst->data, ne00 * ne01);
-        }
-#else
         const int n_tile_num = wt->n_tile_num;
         GGML_ASSERT(ne0 % n_tile_num == 0);
         const int w_size      = ne00 * ne01 * bits / 8;
@@ -12488,7 +12470,6 @@ static void ggml_compute_forward_mul_mat(
                 }
             }
         }
-#endif
 
         return;
     }
