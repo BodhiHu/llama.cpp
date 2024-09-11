@@ -262,6 +262,38 @@ if (GGML_LLAMAFILE)
     set(GGML_SOURCES_LLAMAFILE llamafile/sgemm.cpp)
 endif()
 
+if (GGML_TMAC)
+    message(STATUS "Using TMAC")
+
+    find_package(TMAC)
+
+    if (TMAC_FOUND)
+        message(STATUS "TMAC found")
+
+        add_compile_definitions(GGML_USE_TMAC)
+
+        set(GGML_HEADERS_TMAC tmac/ggml-tmac.h)
+        set(GGML_SOURCES_TMAC tmac/ggml-tmac.cpp)
+
+        link_directories(${TMAC_LIB_DIR})
+
+        if (GGML_TMAC_TVM_THREADPOOL)
+            add_compile_definitions(TMAC_USE_TVM_THREADPOOL)
+            set(GGML_EXTRA_LIBS ${GGML_EXTRA_LIBS} t_mac)
+        else()
+            if ((NOT ${CMAKE_C_COMPILER_ID} MATCHES "Clang") OR
+                (NOT ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang"))
+                message(FATAL_ERROR "Clang is required for T-MAC compilation")
+            endif()
+
+            set(GGML_EXTRA_LIBS ${GGML_EXTRA_LIBS} t_mac_no_tvm)
+            set(GGML_SOURCES_TMAC ${GGML_SOURCES_TMAC} ${TMAC_KERNELS_SOURCE})
+        endif()
+    else()
+        message(WARNING "TMAC not found")
+    endif()
+endif()
+
 if (GGML_CUDA)
     cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
 
@@ -1105,6 +1137,17 @@ if (CMAKE_OSX_ARCHITECTURES      STREQUAL "arm64" OR
             # Raspberry Pi 3, 4, Zero 2 (32-bit)
             list(APPEND ARCH_FLAGS -mno-unaligned-access)
         endif()
+        if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64" AND GGML_TMAC AND TMAC_FOUND)
+            # We need fullfp16 for T-MAC
+            # TODO: check_cxx_source_compiles
+            list(APPEND ARCH_FLAGS -march=armv8.2a+fp16)
+        endif()
+        if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "ARM64" AND GGML_TMAC AND TMAC_FOUND)
+            # ARM Windows with LLVM clang GNU interface
+            # We need fullfp16 for T-MAC
+            # TODO: check_cxx_source_compiles
+            list(APPEND ARCH_FLAGS -march=armv8.2a+fp16)
+        endif()
         if (GGML_SVE)
             list(APPEND ARCH_FLAGS -march=armv8.6-a+sve)
         endif()
@@ -1296,6 +1339,7 @@ add_library(ggml
             ${GGML_SOURCES_ROCM}      ${GGML_HEADERS_ROCM}
             ${GGML_SOURCES_BLAS}      ${GGML_HEADERS_BLAS}
             ${GGML_SOURCES_LLAMAFILE} ${GGML_HEADERS_LLAMAFILE}
+            ${GGML_SOURCES_TMAC}      ${GGML_HEADERS_TMAC}
             ${GGML_SOURCES_CANN}      ${GGML_HEADERS_CANN}
             ggml-aarch64.c            ggml-aarch64.h
             )

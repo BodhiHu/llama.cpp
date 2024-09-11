@@ -5,6 +5,8 @@ include(CheckIncludeFileCXX)
 #set(CMAKE_WARN_DEPRECATED YES)
 set(CMAKE_WARN_UNUSED_CLI YES)
 
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if (NOT XCODE AND NOT MSVC AND NOT CMAKE_BUILD_TYPE)
@@ -100,6 +102,7 @@ endfunction()
 llama_option_depr(FATAL_ERROR LLAMA_CUBLAS              GGML_CUDA)
 llama_option_depr(WARNING     LLAMA_CUDA                GGML_CUDA)
 llama_option_depr(WARNING     LLAMA_KOMPUTE             GGML_KOMPUTE)
+llama_option_depr(WARNING     LLAMA_TMAC                GGML_TMAC)
 llama_option_depr(WARNING     LLAMA_METAL               GGML_METAL)
 llama_option_depr(WARNING     LLAMA_METAL_EMBED_LIBRARY GGML_METAL_EMBED_LIBRARY)
 llama_option_depr(WARNING     LLAMA_NATIVE              GGML_NATIVE)
