@@ -12382,11 +12382,9 @@ static void ggml_compute_forward_mul_mat(
         tmac_float_type * lut_biases = (tmac_float_type *) (lut_scales + wt->lut_scales_size * ne11);
 
         // g = 4
-        if (src1->type != vec_dot_type) {
         // if (params->type == GGML_TASK_TYPE_INIT) {
-        //  if (ith != 0) {
-        //      return;
-        //  }
+        if (ith == 0) {
+
             // Transform tensor if not already transformed
             // Although we have done this in file `llama.cpp`,
             // we still need to do it here for non-model inference, e.g., test-backend-ops.cpp.
@@ -12408,10 +12406,8 @@ static void ggml_compute_forward_mul_mat(
                                             lut_biases + wt->lut_scales_size * ine11,
                                             ne01, ne00, 1, bits);
             }
-
-            ggml_barrier(params->shared);
-            // return;
         }
+        ggml_barrier(params->shared);
 
         tmac_float_type * act_output;
         if (sizeof(tmac_float_type) == 2) {
