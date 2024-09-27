@@ -113,7 +113,6 @@ set(GGML_BLAS_VENDOR ${GGML_BLAS_VENDOR_DEFAULT} CACHE STRING
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)
 
 option(GGML_TMAC                            "ggml: use TMAC"                                  OFF)
-option(GGML_TMAC_TVM_THREADPOOL             "ggml: use TVM threadpool for TMAC"               OFF)
 
 option(GGML_CUDA                            "ggml: use CUDA"                                  OFF)
 option(GGML_MUSA                            "ggml: use MUSA"                                  OFF)

@@ -258,6 +258,8 @@ if (GGML_TMAC)
 
     set(GGML_LLAMAFILE OFF)
 
+    list(APPEND GGML_CDEF_PUBLIC GGML_USE_TMAC)
+
     find_package(TMAC)
 
     if (TMAC_FOUND)
@@ -270,18 +272,13 @@ if (GGML_TMAC)
 
         link_directories(${TMAC_LIB_DIR})
 
-        if (GGML_TMAC_TVM_THREADPOOL)
-            add_compile_definitions(TMAC_USE_TVM_THREADPOOL)
-            set(GGML_EXTRA_LIBS ${GGML_EXTRA_LIBS} t_mac)
-        else()
-            if ((NOT ${CMAKE_C_COMPILER_ID} MATCHES "Clang") OR
-                (NOT ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang"))
-                message(FATAL_ERROR "Clang is required for T-MAC compilation")
-            endif()
-
-            set(GGML_EXTRA_LIBS ${GGML_EXTRA_LIBS} t_mac_no_tvm)
-            set(GGML_SOURCES_TMAC ${GGML_SOURCES_TMAC} ${TMAC_KERNELS_SOURCE})
+        if ((NOT ${CMAKE_C_COMPILER_ID} MATCHES "Clang") OR
+            (NOT ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang"))
+            message(FATAL_ERROR "Clang is required for T-MAC compilation")
         endif()
+
+        set(GGML_EXTRA_LIBS ${GGML_EXTRA_LIBS} t_mac_no_tvm)
+        set(GGML_SOURCES_TMAC ${GGML_SOURCES_TMAC} ${TMAC_KERNELS_SOURCE})
     else()
         message(WARNING "TMAC not found")
     endif()

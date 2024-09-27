@@ -12372,6 +12372,8 @@ static void ggml_compute_forward_mul_mat(
         char * wdata = params->wdata;
 
         struct tmac_tensor_extra * wt = src0->extra;
+        GGML_ASSERT(wt != NULL);
+
         char * cur_wdata = wdata;
         tmac_float_type * tmac_f_ptr = wdata;
         if (sizeof(tmac_float_type) == 2) {
