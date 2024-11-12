@@ -1342,6 +1342,7 @@ struct ggml_compute_params {
     // work buffer for all threads
     size_t wsize;
     void * wdata;
+    atomic_int *aic;
 
     struct ggml_threadpool * threadpool;
 };
@@ -5619,6 +5620,38 @@ static void ggml_compute_forward_sum_bf16(
     ((ggml_bf16_t *) dst->data)[0] = GGML_FP32_TO_BF16(sum);
 }
 
+static void ggml_compute_forward_sum_i32(
+    const struct ggml_compute_params * params,
+    const struct ggml_tensor * src0,
+          struct ggml_tensor * dst) {
+
+    if (params->ith != 0) {
+        return;
+    }
+
+    assert(ggml_is_scalar(dst));
+
+    assert(src0->nb[0] == sizeof(int32_t));
+
+    GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne)
+    GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb)
+
+    int64_t sum = 0;
+    int64_t row_sum = 0;
+
+    for (int64_t i03 = 0; i03 < ne03; i03++) {
+        for (int64_t i02 = 0; i02 < ne02; i02++) {
+            for (int64_t i01 = 0; i01 < ne01; i01++) {
+                ggml_vec_sum_i32_ggf(ne00,
+                    &row_sum,
+                    (int32_t *) ((char *) src0->data + i01 * nb01 + i02 * nb02 + i03 * nb03));
+                sum += row_sum;
+            }
+        }
+    }
+    ((int32_t *) dst->data)[0] = sum;
+}
+
 static void ggml_compute_forward_sum(
         const struct ggml_compute_params * params,
         struct ggml_tensor * dst) {
@@ -5637,6 +5670,10 @@ static void ggml_compute_forward_sum(
         case GGML_TYPE_BF16:
             {
                 ggml_compute_forward_sum_bf16(params, dst);
+            } break;
+        case GGML_TYPE_I32:
+            {
+                ggml_compute_forward_sum_i32(params, src0, dst);
             } break;
         default:
             {
@@ -12190,6 +12227,633 @@ static void ggml_compute_forward_opt_step_adamw(
             }
     }
 }
+
+static void find_top_k_indices(float *d1, int len, int topK, int *top_k_indices) {
+    for (int i = 0; i < topK; i++) {
+        top_k_indices[i] = -1;
+    }
+
+    for (int i = 0; i < len; i++) {
+        for (int j = 0; j < topK; j++) {
+            if (top_k_indices[j] == -1 || d1[i] > d1[top_k_indices[j]]) {
+                // Shift indices down to make room for the new top index
+                for (int k = topK - 1; k > j; k--) {
+                    top_k_indices[k] = top_k_indices[k - 1];
+                }
+                top_k_indices[j] = i;
+                break;
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_attn_head_sparse(
+        const struct ggml_compute_params * params,
+        const struct ggml_tensor * src0, // kqv : { n_embd_head, n_tokens, n_head_kv, 1 }
+        const struct ggml_tensor * src1, // asl : { n_heads,     n_tokens, 1,         1 }
+        struct ggml_tensor * dst) {
+
+    GGML_ASSERT(params->ith == 0);
+
+    float top;
+    memcpy(&top, (int32_t *) dst->op_params + 0, sizeof(float));
+
+    GGML_ASSERT(top >= 0 && top <= 1);
+
+    if (top >= 1.0) {
+        return;
+    }
+
+    GGML_TENSOR_BINARY_OP_LOCALS
+
+    GGML_ASSERT(ne00 == ne0  && nb00 == nb0);
+    GGML_ASSERT(ne01 == ne1  && nb01 == nb1);
+    GGML_ASSERT(ne02 == ne2  && nb02 == nb2);
+    GGML_ASSERT(ne03 == ne3  && nb03 == nb3);
+
+    GGML_ASSERT(ne03 == 1 && ne12 == 1 && ne13 == 1);
+
+    int topK = (int) (src1->ne[0] * top);
+
+    GGML_ASSERT(ne10 == ne02 && ne11 == ne01);
+
+    for (int t = 0; t < src1->ne[1]; t++) {     // token dim
+        float * s1 = (float *)((char *) src1->data + t*nb11);
+        int top_k_indices[topK];
+        find_top_k_indices(s1, src1->ne[0], topK, top_k_indices);
+
+        for (int h = 0; h < src1->ne[0]; h++) { // head dim
+            bool is_in_topk = false;
+            for (int i = 0; i < topK; i++) {
+                if (top_k_indices[i] == h) {
+                    is_in_topk = true;
+                    break;
+                }
+            }
+
+            if (!is_in_topk) {
+                float * d = (float *)((char *) dst->data + h*nb2 + t*nb1);
+                memset(d, 0, ne0 * sizeof(float));
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_mul_mat_sparse_head(
+        const struct ggml_compute_params * params,
+        const struct ggml_tensor * src0,
+        const struct ggml_tensor * src1,
+              struct ggml_tensor * dst) {
+    int64_t t0 = ggml_perf_time_us();
+    UNUSED(t0);
+
+    GGML_TENSOR_BINARY_OP_LOCALS;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const enum ggml_type type = src0->type;
+
+    const bool src1_cont = ggml_is_contiguous(src1);
+
+    ggml_vec_dot_t    const vec_dot               = type_traits_cpu[type].vec_dot;
+    enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
+    ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
+
+    GGML_ASSERT(ne0 == ne01);
+    GGML_ASSERT(ne1 == ne11);
+    GGML_ASSERT(ne2 == ne12);
+    GGML_ASSERT(ne3 == ne13);
+
+    // permuted src0 or src1 not support
+    GGML_ASSERT(nb00 == ggml_type_size(type));
+    GGML_ASSERT(nb10 == sizeof(float));
+
+    // dst cannot be transposed or permuted
+    GGML_ASSERT(nb0 == sizeof(float));
+    GGML_ASSERT(nb0 <= nb1);
+    GGML_ASSERT(nb1 <= nb2);
+    GGML_ASSERT(nb2 <= nb3);
+
+    // broadcast factors
+    const int64_t r2 = ne12/ne02;
+    const int64_t r3 = ne13/ne03;
+
+    if (src1->type != vec_dot_type) {
+        char * wdata = params->wdata;
+        const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+        for (int64_t i13 = 0; i13 < ne13; ++i13) {
+            for (int64_t i12 = 0; i12 < ne12; ++i12) {
+                for (int64_t i11 = 0; i11 < ne11; ++i11) {
+                    from_float_to_vec_dot((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
+                    wdata += row_size;
+                }
+            }
+        }
+    }
+    ggml_set_zero(dst);
+    atomic_store(params->aic, 0);
+
+    if (ith == 0) {
+        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+    }
+
+    ggml_barrier(params->threadpool);
+
+    const void * wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+    const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+    const int64_t nr0 = ne01;           // src0 rows
+    const int64_t nr1 = ne11*ne12*ne13; // src1 rows
+
+    const int64_t nth0 = nr0 > nr1 ? nth : 1; // parallelize by src0 rows
+    const int64_t nth1 = nr0 > nr1 ? 1 : nth; // parallelize by src1 rows
+
+    const int64_t ith0 = ith % nth0;
+    const int64_t ith1 = ith / nth0;
+
+    const int64_t dr0 = (nr0 + 8*nth0 - 1)/(8*nth0);
+    const int64_t dr1 = (nr1 + nth1 - 1)/nth1;
+
+    int64_t ir010 = dr0*ith0;
+
+    const int64_t ir110 = dr1*ith1;
+    const int64_t ir111 = MIN(ir110 + dr1, nr1);
+
+    assert(ne12 % ne02 == 0);
+    assert(ne13 % ne03 == 0);
+
+    // block-tiling attempt
+    const int64_t blck_1 = 16;
+
+    float *ffdata = (float *)dst->src[2]->data;
+
+    while (true) {
+        ir010 = atomic_fetch_add(params->aic, dr0);
+        for (int64_t iir1 = ir110; iir1 < ir111; iir1 += blck_1) {
+            for (int64_t ir1 = iir1; ir1 < iir1 + blck_1 && ir1 < ir111; ++ir1) {
+                const int64_t i13 = (ir1/(ne12*ne11));
+                const int64_t i12 = (ir1 - i13*ne12*ne11)/ne11;
+                const int64_t i11 = (ir1 - i13*ne12*ne11 - i12*ne11);
+
+                // broadcast src0 into src1
+                const int64_t i03 = i13/r3;
+                const int64_t i02 = i12/r2;
+
+                const int64_t i1 = i11;
+                const int64_t i2 = i12;
+                const int64_t i3 = i13;
+
+                const char * src0_row = (const char *) src0->data + (0 + i02*nb02 + i03*nb03);
+
+                const char * src1_col = (const char *) wdata +
+                    (src1_cont || src1->type != vec_dot_type
+                    ? (i11      + i12*ne11 + i13*ne12*ne11)*row_size
+                    : (i11*nb11 + i12*nb12 + i13*nb13));
+
+                float * dst_col = (float *) ((char *) dst->data + (i1*nb1 + i2*nb2 + i3*nb3));
+
+                for (int64_t ir0 = ir010; ir0 < ir010+dr0; ++ir0) {
+                    if (ir0 > nr0)
+                        break;
+                    int id = ir0 >> 7;
+                    if (ffdata[id] < -7.0f)
+                    {
+                        dst_col[ir0] = 0;
+                        ir0 += 127;
+                        continue;
+                    }
+                    vec_dot(ne00, &dst_col[ir0], 0, src0_row + ir0*nb01, 0, src1_col, 0, 1);
+                }
+            }
+        }
+        if (ir010 + dr0 >= nr0) {
+            break;
+        }
+    }
+}
+
+static void ggml_compute_forward_mul_mat_sparse(
+        const struct ggml_compute_params * params,
+        const struct ggml_tensor * src0,
+        const struct ggml_tensor * src1,
+              struct ggml_tensor * dst) {
+    int64_t t0 = ggml_perf_time_us();
+    UNUSED(t0);
+
+    GGML_TENSOR_BINARY_OP_LOCALS;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const enum ggml_type type = src0->type;
+
+    const bool src1_cont = ggml_is_contiguous(src1);
+
+    ggml_vec_dot_t    const vec_dot               = type_traits_cpu[type].vec_dot;
+    enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
+    ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
+
+    const float threshold = sparse_pred_threshold;
+
+    GGML_ASSERT(ne0 == ne01);
+    GGML_ASSERT(ne1 == ne11);
+    GGML_ASSERT(ne2 == ne12);
+    GGML_ASSERT(ne3 == ne13);
+
+    // we don't support permuted src0 or src1
+    GGML_ASSERT(nb00 == ggml_type_size(type));
+    GGML_ASSERT(nb10 == sizeof(float));
+
+    // dst cannot be transposed or permuted
+    GGML_ASSERT(nb0 == sizeof(float));
+    GGML_ASSERT(nb0 <= nb1);
+    GGML_ASSERT(nb1 <= nb2);
+    GGML_ASSERT(nb2 <= nb3);
+
+    // broadcast factors
+    const int64_t r2 = ne12/ne02;
+    const int64_t r3 = ne13/ne03;
+
+    if (src1->type != vec_dot_type) {
+        char * wdata = params->wdata;
+        const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+        for (int64_t i13 = 0; i13 < ne13; ++i13) {
+            for (int64_t i12 = 0; i12 < ne12; ++i12) {
+                for (int64_t i11 = 0; i11 < ne11; ++i11) {
+                    from_float_to_vec_dot((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
+                    wdata += row_size;
+                }
+            }
+        }
+    }
+    atomic_store(params->aic, 0);
+
+    if (ith == 0) {
+        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+    }
+
+    ggml_barrier(params->threadpool);
+
+    const void * wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+    const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+    const int64_t nr0 = ne01;           // src0 rows
+    const int64_t nr1 = ne11*ne12*ne13; // src1 rows
+
+    const int64_t nth0 = nr0 > nr1 ? nth : 1; // parallelize by src0 rows
+    const int64_t nth1 = nr0 > nr1 ? 1 : nth; // parallelize by src1 rows
+
+    const int64_t ith0 = ith % nth0;
+    const int64_t ith1 = ith / nth0;
+
+    const int64_t dr0 = (nr0 + 8*nth0 - 1)/(8*nth0);
+    const int64_t dr1 = (nr1 + nth1 - 1)/nth1;
+
+    int64_t ir010 = dr0*ith0;
+    int64_t ir011 = MIN(ir010 + dr0, nr0);
+
+    const int64_t ir110 = dr1*ith1;
+    const int64_t ir111 = MIN(ir110 + dr1, nr1);
+
+    assert(ne12 % ne02 == 0);
+    assert(ne13 % ne03 == 0);
+
+    const int64_t blck_1 = 16;
+
+    float *ffdata = (float *)dst->src[2]->data;
+    int *gid = (int *)dst->src[3]->data;
+    float *predictor_data = (float *)dst->src[2]->data;
+    const size_t predictor_row_size = dst->src[2]->ne[0]*ggml_type_size(GGML_TYPE_F32)/ggml_blck_size(GGML_TYPE_F32);
+
+    while (true) {
+        ir010 = atomic_fetch_add(params->aic, dr0);
+        ir011 = MIN(ir010 + dr0, nr0);
+        for (int64_t ir0 = ir010; ir0 < ir011; ++ir0) {
+            for (int64_t iir1 = ir110; iir1 < ir111; iir1 += blck_1) {
+                if (ir0 > nr0) break;
+
+                for (int64_t ir1 = iir1; ir1 < iir1 + blck_1 && ir1 < ir111; ++ir1) {
+                    const int64_t i13 = (ir1 / (ne12 * ne11));
+                    const int64_t i12 = (ir1 - i13 * ne12 * ne11) / ne11;
+                    const int64_t i11 = (ir1 - i13 * ne12 * ne11 - i12 * ne11);
+
+                    // broadcast src0 into src1
+                    const int64_t i03 = i13 / r3;
+                    const int64_t i02 = i12 / r2;
+
+                    const int64_t i1 = i11;
+                    const int64_t i2 = i12;
+                    const int64_t i3 = i13;
+
+                    const char *src0_row = (const char *)src0->data + (0 + i02 * nb02 + i03 * nb03);
+
+                    const char *src1_col = (const char *)wdata +
+                                           (src1_cont || src1->type != vec_dot_type
+                                                ? (i11 + i12 * ne11 + i13 * ne12 * ne11) * row_size
+                                                : (i11 * nb11 + i12 * nb12 + i13 * nb13));
+                    ffdata = (float *)((char *)predictor_data + (i11      + i12*ne11 + i13*ne12*ne11)*predictor_row_size);
+
+                    float *dst_col = (float *)((char *)dst->data + (i1 * nb1 + i2 * nb2 + i3 * nb3));
+
+                    if (gid[ir0] == 1 || ffdata[ir0] < threshold) {
+                        dst_col[ir0] = 0;
+                        continue;
+                    }
+                    vec_dot(ne00, &dst_col[ir0], 0, src0_row + ir0 * nb01, 0, src1_col, 0, 1);
+                }
+            }
+        }
+        if (ir010 + dr0 >= nr0) {
+            break;
+        }
+    }
+}
+
+// vz = alpha * vx + vy
+static void ggml_axpy_normal_f16(const int n, const ggml_fp16_t * vx, const ggml_fp16_t * restrict vy, void* restrict vz, ggml_fp16_t alpha) {
+    float *res = (float *)vz;
+    for (int i = 0; i < n; i++) {
+            res[i] = res[i] + (GGML_FP16_TO_FP32(vx[i])*GGML_FP16_TO_FP32(alpha));
+    }
+    (void) vy;
+}
+static void ggml_axpy_avx_f16(const int n, const ggml_fp16_t * restrict vx, const ggml_fp16_t * vy, void* vz, ggml_fp16_t alpha) {
+#if defined(__AVX2__)
+    float *result = (float *)vz;
+    float alpha_f32 = GGML_FP16_TO_FP32(alpha);
+    __m256 scale = _mm256_set1_ps(alpha_f32);
+    for (int i = 0; i < n; i += 8) {
+        __m128i vx_low = _mm_loadu_si128((__m128i const*)(&vx[i]));
+        __m256 vx_f32 = _mm256_cvtph_ps(vx_low);
+        __m256 vy_f32 = _mm256_loadu_ps((float const*)(result+ i));
+        __m256 res = _mm256_fmadd_ps(vx_f32, scale, vy_f32);
+        _mm256_storeu_ps((float*)(&result[i]), res);
+    }
+#else
+    float *res = (float *)vz;
+    float alpha_convert = GGML_FP16_TO_FP32(alpha);
+    for (int i = 0; i < n; i++) {
+        res[i] = res[i] + (GGML_FP16_TO_FP32(vx[i])*alpha_convert);
+    }
+#endif
+    (void)vy;
+}
+
+static void ggml_compute_forward_mul_mat_axpy(
+        const struct ggml_compute_params * params,
+        const struct ggml_tensor * src0,
+        const struct ggml_tensor * src1,
+              struct ggml_tensor * dst) {
+    int64_t t0 = ggml_perf_time_us();
+    UNUSED(t0);
+
+    GGML_TENSOR_BINARY_OP_LOCALS;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const enum ggml_type type = src0->type;
+
+    enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
+    ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
+
+    const float threshold = sparse_pred_threshold;
+
+    // we don't support permuted src0 or src1
+    GGML_ASSERT(nb00 == ggml_type_size(type));
+    GGML_ASSERT(nb10 == sizeof(float));
+
+    // dst cannot be transposed or permuted
+    GGML_ASSERT(nb0 == sizeof(float));
+    GGML_ASSERT(nb0 <= nb1);
+    GGML_ASSERT(nb1 <= nb2);
+    GGML_ASSERT(nb2 <= nb3);
+
+    ggml_set_zero(dst);
+    if (src1->type != vec_dot_type) {
+        char * wdata = params->wdata;
+        const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+        for (int64_t i13 = 0; i13 < ne13; ++i13) {
+            for (int64_t i12 = 0; i12 < ne12; ++i12) {
+                for (int64_t i11 = 0; i11 < ne11; ++i11) {
+                    from_float_to_vec_dot((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
+                    wdata += row_size;
+                }
+            }
+        }
+    }
+    atomic_store(params->aic, 0);
+
+    if (ith == 0) {
+        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+    }
+
+    ggml_barrier(params->threadpool);
+
+    ggml_fp16_t* wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+    const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+    struct ggml_tensor *src2 = dst->src[2];
+
+    // parallelize by src0 rows
+    const int64_t dr = (ne01 + nth - 1)/(nth);
+    const int nr = ggml_nrows(src0);
+
+    const int64_t ir10 = dr*ith;
+
+    const int64_t nr1 = ne11*ne12*ne13;
+    float *sparse_idx = src2->data;
+    int idx_row_size = src2->nb[1];
+    int *gpu_idx = dst->src[3] ? (int *)(dst->src[3]->data) : NULL;
+
+#if defined(_MSC_VER)
+    float* vec = (float *)_malloca(ne00 * 4 * sizeof(float));
+#else
+    float vec[ne00*4];
+#endif
+    void *vy = vec;
+    char* src0_row = (char *) src0->data;
+    ggml_fp16_t * src1_ptr = NULL;
+    for (int col_idx = 0; col_idx < nr1; col_idx++) {
+        src1_ptr = (ggml_fp16_t *)((char *)wdata + col_idx * row_size);
+        sparse_idx = (float *)((char *)src2->data + col_idx * idx_row_size);
+        memset(vy, 0, ne00*4);
+        for (int64_t ir1 = ir10; ir1 < ir10+dr; ir1++) {
+            if (ir1 >= nr) {
+                break;
+            }
+		    if (src1_ptr[ir1] == 0) {
+                continue;
+            }
+            if (!gpu_idx || gpu_idx[ir1] == 1) {
+                continue;
+            }
+            if (sparse_idx[ir1] < threshold) {
+                continue;
+            }
+
+            ggml_axpy_normal_f16(ne00, src0_row+nb01*ir1, vy, vy, wdata[ir1]);
+            ggml_axpy_avx_f16(ne00, (ggml_fp16_t *)(src0_row + nb01 * ir1), (ggml_fp16_t *)vy, vy, src1_ptr[ir1]);
+        }
+
+        float *res = (float *)((char *)(dst->data) + col_idx * nb1);
+        float *tmp = (float *)vy;
+        int i;
+
+        int remainder = ne00 % 8;
+
+#if defined(__AVX2__)
+        for (i = 0; i < ne00 - remainder; i += 8) {
+            __m256 res_vec = _mm256_loadu_ps(res + i);
+            __m256 tmp_vec = _mm256_loadu_ps(tmp + i);
+            __m256 result = _mm256_add_ps(res_vec, tmp_vec);
+            _mm256_storeu_ps(res + i, result);
+        }
+
+        for (i = ne00 - remainder; i < ne00; i++) {
+            res[i] += tmp[i];
+        }
+#else
+        for (i = 0; i < ne00; i++) {
+            res[i] += tmp[i];
+        }
+#endif
+    }
+#if defined(_MSC_VER)
+    _freea(vec);
+#endif
+}
+
+static void ggml_compute_forward_mul_mat_axpy_q4_0(
+        const struct ggml_compute_params * params,
+        const struct ggml_tensor * src0,
+        const struct ggml_tensor * src1,
+              struct ggml_tensor * dst) {
+    int64_t t0 = ggml_perf_time_us();
+    UNUSED(t0);
+
+    GGML_TENSOR_BINARY_OP_LOCALS;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const enum ggml_type type = src0->type;
+
+    // const bool src1_cont = ggml_is_contiguous(src1);
+
+    // ggml_vec_dot_t    const vec_dot               = type_traits[type].vec_dot;
+    enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
+    ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
+
+    const float threshold = sparse_pred_threshold;
+
+    // don't support permuted src0 or src1
+    GGML_ASSERT(nb00 == ggml_type_size(type));
+    GGML_ASSERT(nb10 == sizeof(float));
+
+    // dst cannot be transposed or permuted
+    GGML_ASSERT(nb0 == sizeof(float));
+    GGML_ASSERT(nb0 <= nb1);
+    GGML_ASSERT(nb1 <= nb2);
+    GGML_ASSERT(nb2 <= nb3);
+
+    ggml_set_zero(dst);
+    if (src1->type != vec_dot_type) {
+        char * wdata = params->wdata;
+        const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+        for (int64_t i13 = 0; i13 < ne13; ++i13) {
+            for (int64_t i12 = 0; i12 < ne12; ++i12) {
+                for (int64_t i11 = 0; i11 < ne11; ++i11) {
+                    from_float_to_vec_dot((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
+                    wdata += row_size;
+                }
+            }
+        }
+    }
+    atomic_store(params->aic, 0);
+
+    if (ith == 0) {
+        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+    }
+
+    ggml_barrier(params->threadpool);
+
+    ggml_fp16_t* wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+    const size_t row_size = ne10*ggml_type_size(vec_dot_type)/ggml_blck_size(vec_dot_type);
+
+    struct ggml_tensor *src2 = dst->src[2];
+
+    // parallelize by src0 rows
+    const int64_t dr = (src2->ne[0] + nth - 1)/(nth);
+    const int nr = ggml_nrows(src0);
+
+    const int64_t ir10 = dr*ith;
+
+    const int64_t nr1 = ne11*ne12*ne13;
+    float *idx = src2->data;
+    int idx_row_size = src2->nb[1];
+    int *gid = (int *)(dst->src[3]->data);
+
+#if defined(_MSC_VER)
+    float* vec = (float *)_malloca(ne00 * 4 * sizeof(float));
+#else
+    float vec[ne00*4];
+#endif
+    void *vy = vec;
+    char* src0_row = (char *) src0->data;
+    for (int col_idx = 0; col_idx < nr1; col_idx++) {
+        const block_q8_0 *restrict nerual = (block_q8_0 *)((char *)wdata + col_idx * row_size);
+        idx = (float *)((char *)src2->data + col_idx * idx_row_size);
+        memset(vy, 0, ne00 * 4);
+        for (int64_t ir1 = ir10; ir1 < ir10 + dr; ir1++) {
+            if (ir1 >= nr) break;
+
+            if (gid[ir1] == 1) continue;
+            if (idx[ir1] < threshold) continue;
+
+            int bid = ir1 / QK8_0;
+            int qsid = ir1 % QK8_0;
+            int b = (int)nerual[bid].qs[qsid];
+            if (b == 0) continue;
+
+            ggml_fp16_t d = nerual[bid].d;
+            ggml_axpy_q4_0_q8_0(ne00, src0_row + nb01 * ir1, vy, vy, b, d);
+        }
+
+        float *res = (float *)((char *)(dst->data) + col_idx * nb1);
+        float *tmp = (float *)vy;
+        int i;
+
+        int remainder = ne00 % 8;
+#if defined(__AVX2__)
+        for (i = 0; i < ne00 - remainder; i += 8)
+        {
+            __m256 res_vec = _mm256_loadu_ps(res + i);
+            __m256 tmp_vec = _mm256_loadu_ps(tmp + i);
+            __m256 result = _mm256_add_ps(res_vec, tmp_vec);
+            _mm256_storeu_ps(res + i, result);
+        }
+
+        for (i = ne00 - remainder; i < ne00; i++)
+        {
+            res[i] += tmp[i];
+        }
+#else
+        for (i = 0; i < ne00; i++) {
+            res[i] += tmp[i];
+        }
+#endif
+    }
+#if defined(_MSC_VER)
+    _freea(vec);
+#endif
+}
+
 /////////////////////////////////
 
 static void ggml_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
@@ -12307,6 +12971,31 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
         case GGML_OP_MUL_MAT_ID:
             {
                 ggml_compute_forward_mul_mat_id(params, tensor);
+            } break;
+        case GGML_OP_MUL_MAT_SPARSE:
+            {
+                GGML_ASSERT(tensor->src[2] != NULL && "sparsity index is required for MUL_MAT_SPARSE");
+
+                if (tensor->src[2]->ne[0] > 1000) {
+                    ggml_compute_forward_mul_mat_sparse(params, tensor->src[0], tensor->src[1], tensor);
+                } else {
+                    ggml_compute_forward_mul_mat_sparse_head(params, tensor->src[0], tensor->src[1], tensor);
+                }
+            } break;
+        case GGML_OP_AXPY:
+            {
+                GGML_ASSERT(tensor->src[2] != NULL && "sparse index is required for AXPY");
+
+                if (tensor->src[0]->type != GGML_TYPE_Q4_0) {
+                    ggml_compute_forward_mul_mat_axpy(params, tensor->src[0], tensor->src[1], tensor);
+                }
+                else {
+                    ggml_compute_forward_mul_mat_axpy_q4_0(params, tensor->src[0], tensor->src[1], tensor);
+                }
+            } break;
+        case GGML_OP_ATTN_HEAD_SPARSE:
+            {
+                ggml_compute_forward_attn_head_sparse(params, tensor->src[0], tensor->src[1], tensor);
             } break;
         case GGML_OP_OUT_PROD:
             {
@@ -12708,6 +13397,8 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_CONCAT:
         case GGML_OP_MUL_MAT:
         case GGML_OP_MUL_MAT_ID:
+        case GGML_OP_MUL_MAT_SPARSE:
+        case GGML_OP_AXPY:
         case GGML_OP_OUT_PROD:
             {
                 n_tasks = n_threads;
@@ -12727,6 +13418,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_TRANSPOSE:
         case GGML_OP_GET_ROWS_BACK:
         case GGML_OP_DIAG:
+        case GGML_OP_ATTN_HEAD_SPARSE:
             {
                 n_tasks = 1;
             } break;
@@ -13170,6 +13862,7 @@ struct ggml_cplan ggml_graph_plan(
                     cur = ggml_type_size(node->type)*n_tasks;
                 } break;
             case GGML_OP_MUL_MAT:
+            case GGML_OP_MUL_MAT_SPARSE:
                 {
                     const enum ggml_type vec_dot_type = type_traits_cpu[node->src[0]->type].vec_dot_type;
 
@@ -13190,6 +13883,13 @@ struct ggml_cplan ggml_graph_plan(
                     cur += GGML_PAD(cur, sizeof(int64_t));       // align
                     cur += n_as * sizeof(int64_t);               // matrix_row_counts
                     cur += n_as * src1->ne[2] * sizeof(int64_t); // matrix_rows
+                } break;
+            case GGML_OP_AXPY:
+                {
+                    const enum ggml_type vec_dot_type = type_traits_cpu[node->src[0]->type].vec_dot_type;
+                    if (node->src[1]->type != vec_dot_type) {
+                        cur = ggml_type_size(vec_dot_type)*ggml_nelements(node->src[1])/ggml_blck_size(vec_dot_type);
+                    }
                 } break;
             case GGML_OP_OUT_PROD:
                 {

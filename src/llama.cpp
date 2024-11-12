@@ -364,6 +364,8 @@ enum llm_kv {
     LLM_KV_TOKENIZER_PREFIX_ID,
     LLM_KV_TOKENIZER_SUFFIX_ID,
     LLM_KV_TOKENIZER_MIDDLE_ID,
+
+    LLM_KV_SPARSE_THRESHOLD,
 };
 
 static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
@@ -480,6 +482,8 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_TOKENIZER_PREFIX_ID,              "tokenizer.ggml.prefix_token_id" },
     { LLM_KV_TOKENIZER_SUFFIX_ID,              "tokenizer.ggml.suffix_token_id" },
     { LLM_KV_TOKENIZER_MIDDLE_ID,              "tokenizer.ggml.middle_token_id" },
+
+    { LLM_KV_SPARSE_THRESHOLD,                 "powerinfer.sparse_threshold" },
 };
 
 struct LLM_KV {
@@ -601,6 +605,13 @@ enum llm_tensor {
     LLM_TENSOR_ENC_OUTPUT_NORM,
     LLM_TENSOR_CLS,
     LLM_TENSOR_CLS_OUT,
+
+    // sparse tensors
+    LLM_TENSOR_FFN_DOWN_T,
+    LLM_TENSOR_MLP_PRED_FC1,
+    LLM_TENSOR_MLP_PRED_FC2,
+    LLM_TENSOR_ATTN_PRED_1,
+    LLM_TENSOR_ATTN_PRED_2,
 };
 
 static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_NAMES = {
@@ -628,6 +639,13 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
             { LLM_TENSOR_FFN_GATE_EXPS,   "blk.%d.ffn_gate_exps" },
             { LLM_TENSOR_FFN_DOWN_EXPS,   "blk.%d.ffn_down_exps" },
             { LLM_TENSOR_FFN_UP_EXPS,     "blk.%d.ffn_up_exps" },
+
+            // sparse tensors
+            { LLM_TENSOR_FFN_DOWN_T,      "blk.%d.ffn_down_t" },
+            { LLM_TENSOR_MLP_PRED_FC1,    "blk.%d.fc1" },
+            { LLM_TENSOR_MLP_PRED_FC2,    "blk.%d.fc2" },
+            { LLM_TENSOR_ATTN_PRED_1,     "blk.%d.attn_pred1" },
+            { LLM_TENSOR_ATTN_PRED_2,     "blk.%d.attn_pred2" },
         },
     },
     {
@@ -2421,6 +2439,14 @@ struct llama_hparams {
     enum llama_rope_type         rope_type               = LLAMA_ROPE_TYPE_NONE;
     enum llama_rope_scaling_type rope_scaling_type_train = LLAMA_ROPE_SCALING_TYPE_NONE;
 
+    // sparse predictor threshold if sparse inference is enabled
+    float sparse_pred_threshold = (float)atof(
+        getenv("LLAMA_SPARSE_PRED_THRESHOLD") ? getenv("LLAMA_SPARSE_PRED_THRESHOLD") : "0.0"
+    );
+    float sparse_heads_top = (float)atof(
+        getenv("LLAMA_SPARSE_HEADS_TOP") ? getenv("LLAMA_SPARSE_HEADS_TOP") : "1"
+    );
+
     bool operator!=(const llama_hparams & other) const {
         if (this->vocab_only    != other.vocab_only)    return true;
         if (this->n_vocab       != other.n_vocab)       return true;
@@ -2732,6 +2758,13 @@ struct llama_layer {
     struct ggml_tensor * ffn_gate_scale;
     struct ggml_tensor * ffn_up_scale;
     struct ggml_tensor * ffn_down_scale;
+
+    // sparse predictor tensors
+    struct ggml_tensor * attn_pre_w1;
+    struct ggml_tensor * attn_pre_w2;
+    struct ggml_tensor * ffn_down_t;
+    struct ggml_tensor * mlp_pre_w1;
+    struct ggml_tensor * mlp_pre_w2;
 };
 
 // very similar to llama_batch,
@@ -2840,6 +2873,8 @@ struct llama_model {
     llama_ftype ftype = LLAMA_FTYPE_ALL_F32;
 
     std::string name = "n/a";
+
+    ggml_sparse_deriv sparse_deriv;
 
     llama_hparams hparams = {};
     llama_vocab   vocab;
@@ -4212,6 +4247,8 @@ struct llama_model_loader {
     int n_tensors = 0;
     int n_created = 0;
 
+    ggml_sparse_deriv sparse_deriv;
+
     int64_t n_elements = 0;
     size_t  n_bytes    = 0;
 
@@ -4373,6 +4410,7 @@ struct llama_model_loader {
 
         n_kv      = gguf_get_n_kv(meta.get());
         n_tensors = weights_map.size();
+        sparse_deriv = gguf_get_sparse_deriv(ctx);
 
         fver = (enum llama_fver) gguf_get_version(meta.get());
 
@@ -5393,6 +5431,13 @@ static void llm_load_hparams(
         hparams.n_rot = 0;
         hparams.n_embd_head_k = 0;
         hparams.n_embd_head_v = 0;
+    }
+
+    if (gguf_get_sparse_deriv(ctx)) {
+        // read sparse threshold override if sparse deriv is enabled
+        ml.get_key(LLM_KV_SPARSE_THRESHOLD, hparams.sparse_pred_threshold, false);
+        if (getenv("LLAMA_SPARSE_PRED_THRESHOLD"))
+            hparams.sparse_pred_threshold = (float)atof(getenv("LLAMA_SPARSE_PRED_THRESHOLD"));
     }
 
     // arch-specific KVs
@@ -6902,6 +6947,12 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
         LLAMA_LOG_INFO("%s: f_residual_scale  = %f\n", __func__, hparams.f_residual_scale);
         LLAMA_LOG_INFO("%s: f_attention_scale = %f\n", __func__, hparams.f_attention_scale);
     }
+
+    if (model.sparse_deriv > 0) {
+        // sparse inference
+        LLAMA_LOG_INFO("%s: sparse_pred_threshold = %.2f\n", __func__, hparams.sparse_pred_threshold);
+        LLAMA_LOG_INFO("%s: sparse_heads_top      = %.2f\n", __func__, hparams.sparse_heads_top);
+    }
 }
 
 enum llm_tensor_layer {
@@ -7520,6 +7571,11 @@ static bool llm_load_tensors(
                         layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED);
 
+                        if (llama_is_sparse_pi(&model)) {
+                            layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, GGML_NE_WILDCARD});
+                            layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {GGML_NE_WILDCARD, n_head});
+                        }
+
                         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
 
                         layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_rot/2}, llama_model_loader::TENSOR_NOT_REQUIRED | (i != 0 ? llama_model_loader::TENSOR_DUPLICATED : 0));
@@ -7527,6 +7583,10 @@ static bool llm_load_tensors(
                         if (n_expert == 0) {
                             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
                             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+                            if (llama_use_sparse_inference(&model)) {
+                                layer.mlp_pre_w1 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC1, "weight", i), {n_embd, GGML_NE_WILDCARD});
+                                layer.mlp_pre_w2 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC2, "weight", i), {GGML_NE_WILDCARD, n_ff});
+                            }
                             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
 
                             // optional MLP bias
@@ -9169,6 +9229,13 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
     try {
         llama_model_loader ml(fname, params.use_mmap, params.check_tensors, params.kv_overrides);
 
+        if (ml.sparse_deriv == GGML_SPARSE_INFERENCE) {
+            LLAMA_LOG_INFO("%s: PowerInfer model loaded. Sparse inference will be used.\n", __func__);
+        } else if (ml.sparse_deriv == GGML_SPARSE_PI_INFERENCE) {
+            LLAMA_LOG_INFO("%s: Sparse PI model loaded. Sparse PI inference will be used.\n", __func__);
+        }
+
+        model.sparse_deriv = ml.sparse_deriv;
         model.hparams.vocab_only = params.vocab_only;
 
         try {
@@ -9234,6 +9301,7 @@ enum llm_ffn_op_type {
 enum llm_ffn_gate_type {
     LLM_FFN_SEQ,
     LLM_FFN_PAR, // ffn_gate is parallel to ffn_up
+    LLM_FFN_SYM, // ffn_gate is parallel to ffn_up and should pass through an activation function
 };
 
 enum llm_norm_type {
@@ -9630,6 +9698,132 @@ static struct ggml_tensor * llm_build_moe_ffn(
     return moe_out;
 }
 
+static struct ggml_tensor * llm_build_sparse_mul_mat(
+        struct ggml_context * ctx,
+         struct ggml_tensor * up,
+         struct ggml_tensor * inp,
+         struct ggml_tensor * idx,
+         const llm_build_cb & cb,
+                 const char * name,
+                         int il) {
+    std::string full_name = "ffn_" + std::string(name) + "_sparse";
+    ggml_tensor * out = nullptr;
+
+    out = ggml_mul_mat_idx(ctx, up, inp, idx);
+    cb(out, full_name.c_str(), il);
+
+    return out;
+}
+
+static struct ggml_tensor * llm_build_sparse_axpy(
+        struct ggml_context * ctx,
+         struct ggml_tensor * w_t,
+         struct ggml_tensor * x,
+         struct ggml_tensor * sparse_idx,
+         const llm_build_cb & cb,
+                 const char * name,
+                         int il) {
+    std::string full_name = "ffn_" + std::string(name) + "_sparse";
+    ggml_tensor * out = nullptr;
+
+    out = ggml_axpy(ctx, w_t, x, sparse_idx);
+    cb(out, full_name.c_str(), il);
+
+    return out;
+}
+
+static struct ggml_tensor * llm_build_ffn_sparse(
+        struct ggml_context * ctx,
+         struct ggml_tensor * cur,
+         struct ggml_tensor * up,
+         struct ggml_tensor * up_b,
+         struct ggml_tensor * gate,
+         struct ggml_tensor * gate_b,
+         struct ggml_tensor * down_t,
+         struct ggml_tensor * down_b,
+         struct ggml_tensor * pre_w1,
+         struct ggml_tensor * pre_w2,
+         struct ggml_tensor * pred_inpl,
+            llm_ffn_op_type   type_op,
+          llm_ffn_gate_type   type_gate,
+         const llm_build_cb & cb_outer,
+                        int   il) {
+    ggml_tensor * ffn_input = cur;
+
+    llm_build_cb cb = [&cb_outer, il](struct ggml_tensor * tensor, const char * name, int _il) {
+        cb_outer(tensor, name, il);
+    };
+
+    // prepare sparse idx
+    ggml_tensor * idx = ggml_mul_mat(ctx, pre_w1, pred_inpl);
+    cb(idx, "mlp_pre_hidden", il);
+    idx = ggml_relu(ctx, idx);
+    cb(idx, "mlp_pre_relu", il);
+    idx = ggml_mul_mat(ctx, pre_w2, idx);
+    cb_outer(idx, "mlp_pre_out", il);
+
+    auto act_fn = [&](ggml_tensor * tensor, const char * name) {
+        switch (type_op) {
+            case LLM_FFN_RELU:
+                {
+                    tensor = ggml_relu(ctx, tensor);
+                    cb(tensor, name, il);
+                } break;
+            default:
+                GGML_ASSERT(false && "unsupported activation function");
+        }
+        return tensor;
+    };
+
+    // FFN up
+    struct ggml_tensor * up_out = llm_build_sparse_mul_mat(ctx, up, ffn_input, idx, cb_outer, "up", il);
+    if (up_b) {
+        up_out = ggml_add(ctx, up_out, up_b);
+        cb(up_out, "ffn_up_b", il);
+    }
+
+    struct ggml_tensor * gate_out = nullptr;
+    if (gate) {
+        ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : up_out;
+        gate_out = llm_build_sparse_mul_mat(ctx, gate, gate_input, idx, cb_outer, "gate", il);
+        if (gate_b) {
+            gate_out = ggml_add(ctx, gate_out, gate_b);
+            cb(gate_out, "ffn_gate_b", il);
+        }
+        switch (type_gate) {
+            case LLM_FFN_PAR:
+                {
+                    ggml_tensor * act_gate = act_fn(gate_out, "ffn_gate_act");
+                    cur = ggml_mul(ctx, act_gate, up_out);
+                    cb(cur, "ffn_gate_par", il);
+                } break;
+            case LLM_FFN_SYM:
+                {
+                    ggml_tensor * act_gate = act_fn(gate_out, "ffn_gate_act");
+                    ggml_tensor * act_up = act_fn(up_out, "ffn_up_act");
+                    cur = ggml_mul(ctx, act_gate, act_up);
+                    cb(cur, "ffn_gate_sym", il);
+                } break;
+            case LLM_FFN_SEQ:
+                {
+                    cur = act_fn(gate_out, "ffn_gate_act");
+                } break;
+            default: GGML_ASSERT(false && "unsupported gate type");
+        }
+    } else {
+        cur = act_fn(up_out, "ffn_up_act");
+    }
+
+    cur = llm_build_sparse_axpy(ctx, down_t, cur, idx, cb_outer, "down", il);
+
+    if (down_b) {
+        cur = ggml_add(ctx, cur, down_b);
+        cb(cur, "ffn_down_b", il);
+    }
+
+    return cur;
+}
+
 static struct ggml_tensor * llm_build_kqv(
         struct ggml_context * ctx,
        struct llama_context & lctx,
@@ -9639,6 +9833,7 @@ static struct ggml_tensor * llm_build_kqv(
          struct ggml_tensor * wo_b,
          struct ggml_tensor * q_cur,
          struct ggml_tensor * kq_mask,
+         struct ggml_tensor * attn_sparse_logits,
                     int32_t   n_tokens,
                     int32_t   n_kv,
                     float     kq_scale,
@@ -9730,6 +9925,13 @@ static struct ggml_tensor * llm_build_kqv(
         struct ggml_tensor * kqv = ggml_mul_mat(ctx, v, kq);
         cb(kqv, "kqv", il);
 
+        if (attn_sparse_logits != NULL) { // apply attention predictors mask
+            GGML_ASSERT(n_head == n_head_kv);
+            struct ggml_tensor * kqv_sparse = ggml_attn_head_sparse(ctx, kqv, attn_sparse_logits, hparams.sparse_heads_top);
+            cb(kqv_sparse, "kqv_sparse", il);
+            kqv = kqv_sparse;
+        }
+
         struct ggml_tensor * kqv_merged = ggml_permute(ctx, kqv, 0, 2, 1, 3);
         cb(kqv_merged, "kqv_merged", il);
 
@@ -9752,6 +9954,38 @@ static struct ggml_tensor * llm_build_kqv(
     }
 
     return cur;
+}
+
+static struct ggml_tensor * llm_build_kqv(
+        struct ggml_context * ctx,
+       struct llama_context & lctx,
+       const llama_kv_cache & kv,
+         struct ggml_cgraph * graph,
+         struct ggml_tensor * wo,
+         struct ggml_tensor * wo_b,
+         struct ggml_tensor * q_cur,
+         struct ggml_tensor * kq_mask,
+                    int32_t   n_tokens,
+                    int32_t   n_kv,
+                    float     kq_scale,
+         const llm_build_cb & cb,
+                    int       il) {
+    return llm_build_kqv(
+        ctx,
+        lctx,
+        kv,
+        graph,
+        wo,
+        wo_b,
+        q_cur,
+        kq_mask,
+        NULL,
+        n_tokens,
+        n_kv,
+        kq_scale,
+        cb,
+        il
+    );
 }
 
 static struct ggml_tensor * llm_build_kv(
@@ -10555,6 +10789,155 @@ struct llm_build_context {
         ggml_set_input(lctx.inp_KQ_mask_cross);
         cb(lctx.inp_KQ_mask_cross, "KQ_mask_cross", -1);
         return lctx.inp_KQ_mask_cross;
+    }
+
+    struct ggml_cgraph * build_sparse_llama() {
+        struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+
+        const int64_t n_embd_head = hparams.n_embd_head_v;
+        GGML_ASSERT(n_embd_head == hparams.n_rot);
+        GGML_ASSERT(llama_use_sparse_inference(&model));
+
+        struct ggml_tensor * cur;
+        struct ggml_tensor * inpL;
+
+        inpL = llm_build_inp_embd(ctx0, lctx, hparams, ubatch, model.tok_embd, cb);
+        // inpL: (n_embd, batch.n_tokens)
+        cb(inpL, "inp_embd", -1);
+
+        // inp_pos - contains the positions
+        struct ggml_tensor * inp_pos = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+        cb(inp_pos, "inp_pos", -1);
+
+        // KQ_scale
+        struct ggml_tensor * KQ_scale = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
+        cb(KQ_scale, "KQ_scale", -1);
+
+        // KQ_mask (mask for 1 head, it will be broadcasted to all heads)
+        struct ggml_tensor * KQ_mask = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_kv, n_tokens, 1);
+        cb(KQ_mask, "KQ_mask", -1);
+
+        for (int il = 0; il < n_layer; ++il) {
+            struct ggml_tensor * inpSA = inpL;
+
+            // norm
+            cur = llm_build_norm(ctx0, inpL, hparams,
+                    model.layers[il].attn_norm, NULL,
+                    LLM_NORM_RMS, cb, il);
+            cb(cur, "attn_norm", il);
+
+            // self-attention
+            {
+                // prepare head attention sparse predictor
+                ggml_tensor * attn_sparse_logits = NULL;
+                if (llama_use_sparse_attention(&model) && (il >= 5 && il < (n_layer - 5))) {
+                    // inpL               : {n_embd, batch.n_tokens}
+                    // layer.attn_pre_w1  : {n_embd, GGML_NE_WILDCARD}
+                    // layer.attn_pre_w2  : {GGML_NE_WILDCARD, n_head}
+                    attn_sparse_logits = ggml_mul_mat(ctx0, model.layers[il].attn_pre_w1, inpL);
+                    cb(attn_sparse_logits, "attn_pre_w1", il);
+                    attn_sparse_logits = ggml_mul_mat(ctx0, model.layers[il].attn_pre_w2, attn_sparse_logits);
+                    cb(attn_sparse_logits, "attn_pre_w2", il);
+                    // attn_sparse_logits : (n_heads, batch.n_tokens)
+                }
+
+                // compute Q and K and RoPE them
+                struct ggml_tensor * Qcur = ggml_mul_mat(ctx0, model.layers[il].wq, cur);
+                cb(Qcur, "Qcur", il);
+
+                struct ggml_tensor * Kcur = ggml_mul_mat(ctx0, model.layers[il].wk, cur);
+                cb(Kcur, "Kcur", il);
+
+                struct ggml_tensor * Vcur = ggml_mul_mat(ctx0, model.layers[il].wv, cur);
+                cb(Vcur, "Vcur", il);
+
+                Qcur = ggml_rope_custom(
+                    ctx0, ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens), inp_pos,
+                    n_embd_head, 0, 0, n_ctx_orig, freq_base, freq_scale,
+                    ext_factor, attn_factor, beta_fast, beta_slow
+                );
+                cb(Qcur, "Qcur", il);
+
+                Kcur = ggml_rope_custom(
+                    ctx0, ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens), inp_pos,
+                    n_embd_head, 0, 0, n_ctx_orig, freq_base, freq_scale,
+                    ext_factor, attn_factor, beta_fast, beta_slow
+                );
+                cb(Kcur, "Kcur", il);
+
+                std::tie(k_cpy, v_cpy) = llm_build_kv_store(ctx0, hparams, kv_self, gf, Kcur, Vcur, n_ctx, n_tokens, kv_head, cb, il);
+
+                cur = llm_build_kqv(ctx0, hparams, kv_self,
+                        model.layers[il].wo, NULL,
+                        Qcur, KQ_scale, KQ_mask, attn_sparse_logits,
+                        n_ctx, n_tokens, n_kv, -1.0f, cb, il);
+                cb(cur, "kqv_out", il);
+            }
+
+            struct ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
+            cb(ffn_inp, "ffn_inp", il);
+
+            // feed-forward network
+            {
+                cur = llm_build_norm(ctx0, ffn_inp, hparams,
+                        model.layers[il].ffn_norm, NULL,
+                        LLM_NORM_RMS, cb, il);
+                llm_ffn_gate_type gate_type = model.arch == LLM_ARCH_BAMBOO ? LLM_FFN_SYM : LLM_FFN_PAR;
+
+                if (llama_use_sparse_inference(&model)) {
+                    llm_build_cb cbs = [&](ggml_tensor * cur, const char * name, int _il) {
+                        std::string name_str = std::string(name) + "-" + std::to_string(il);
+                        ggml_set_name(cur, name_str.c_str());
+                    };
+                    // We only offload the ffn input to GPU if all neurons are offloaded
+                    if (model.layers[il].gpu_offload_ratio >= 1.) {
+                        cb(cur, "ffn_norm", il);
+                    } else {
+                        cbs(cur, "ffn_norm");
+                    }
+                    cur = llm_build_ffn_sparse(ctx0, cur,
+                        model.layers[il].ffn_up,   NULL,
+                        model.layers[il].ffn_gate, NULL,
+                        model.layers[il].ffn_down_t, NULL,
+                        model.layers[il].mlp_pre_w1,
+                        model.layers[il].mlp_pre_w2,
+                        ffn_inp, // as for now, llama's pred use the same input as the ffn
+                        model.layers[il].gpu_idx,
+                        model.layers[il].gpu_bucket, model.layers[il].ffn_gate_gpu, model.layers[il].ffn_down_gpu, model.layers[il].ffn_up_gpu,
+                        LLM_FFN_RELU, gate_type, model.layers[il].gpu_offload_ratio, cbs, il);
+                } else {
+                    // fallback to dense
+                    cb(cur, "ffn_norm", il);
+                    llm_ffn_op_type   act_type = model.arch == LLM_ARCH_BAMBOO ? LLM_FFN_RELU : LLM_FFN_SILU;
+                    cur = llm_build_ffn(ctx0, cur,
+                        model.layers[il].ffn_up,   NULL,
+                        model.layers[il].ffn_gate, NULL,
+                        model.layers[il].ffn_down, NULL,
+                        act_type, gate_type, cb, il);
+                }
+            }
+
+            cur = ggml_add(ctx0, cur, ffn_inp);
+            cb(cur, "l_out", il);
+
+            // input for next layer
+            inpL = cur;
+        }
+
+        cur = inpL;
+
+        cur = llm_build_norm(ctx0, cur, hparams,
+                model.output_norm, NULL,
+                LLM_NORM_RMS, cb, -1);
+        cb(cur, "result_norm", -1);
+
+        // lm_head
+        cur = ggml_mul_mat(ctx0, model.output, cur);
+        cb(cur, "result_output", -1);
+
+        ggml_build_forward_expand(gf, cur);
+
+        return gf;
     }
 
     struct ggml_cgraph * build_llama() {
@@ -16380,6 +16763,10 @@ static struct ggml_cgraph * llama_build_graph(
                   bool   worst_case) {
     const auto & model = lctx.model;
 
+    // For sparse deriv, we offload layers from the starting layer to the end.
+    // For dense deriv, we offload layers from the end to the starting layer.
+    bool offload_starting_layers = lctx.model.sparse_deriv;
+
     // this callback allows us to apply custom logic to each tensor (e.g. ggml-alloc, offloading, etc.)
     llm_build_cb cb = [&](struct ggml_tensor * cur, const char * name, int il) {
         if (il >= 0) {
@@ -16423,7 +16810,11 @@ static struct ggml_cgraph * llama_build_graph(
         case LLM_ARCH_GRANITE:
         case LLM_ARCH_GRANITE_MOE:
             {
-                result = llm.build_llama();
+                if (llama_use_sparse_inference(&model)) {
+                    result = llm.build_sparse_llama();
+                } else {
+                    result = llm.build_llama();
+                }
             } break;
         case LLM_ARCH_BAICHUAN:
             {
@@ -18524,7 +18915,11 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
     }
 
     const size_t align = GGUF_DEFAULT_ALIGNMENT;
-    gguf_context_ptr ctx_out { gguf_init_empty() };
+    // gguf_context_ptr ctx_out { gguf_init_empty() };
+    gguf_context_ptr ctx_out =
+        ml.sparse_deriv == GGML_SPARSE_INFERENCE    ? { gguf_init_empty_sparse() } :
+        ml.sparse_deriv == GGML_SPARSE_PI_INFERENCE ? { gguf_init_empty_sparse_pi() } :
+        { gguf_init_empty() };
 
     // copy the KV pairs from the input file
     gguf_set_kv     (ctx_out.get(), ml.meta.get());
@@ -19683,6 +20078,19 @@ struct llama_context * llama_new_context_with_model(
 
 void llama_free(struct llama_context * ctx) {
     delete ctx;
+}
+
+bool llama_use_sparse_inference(const struct llama_model * model) {
+    return model->sparse_deriv == GGML_SPARSE_INFERENCE || model->sparse_deriv == GGML_SPARSE_PI_INFERENCE;
+}
+
+bool llama_is_sparse_pi(const struct llama_model * model) {
+    return model->sparse_deriv == GGML_SPARSE_PI_INFERENCE;
+}
+
+bool llama_use_sparse_attention(const struct llama_model * model) {
+    return llama_is_sparse_pi(model)
+        && (model->hparams.sparse_heads_top > 0.0 && model->hparams.sparse_heads_top < 1.0);
 }
 
 uint32_t llama_n_ctx(const struct llama_context * ctx) {

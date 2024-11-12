@@ -240,6 +240,8 @@
 #define GGML_ROPE_TYPE_NEOX 2
 
 #define GGUF_MAGIC "GGUF"
+#define GGUF_POWERINFER_MAGIC "PWRI"
+#define GGUF_SPARSE_PI_MAGIC  "SPPI"
 
 #define GGUF_VERSION 3
 
@@ -404,6 +406,12 @@ extern "C" {
         GGML_BACKEND_TYPE_GPU_SPLIT = 20,
     };
 
+    enum ggml_sparse_deriv {
+        GGML_DENSE_INFERENCE     = 0,
+        GGML_SPARSE_INFERENCE    = 1,
+        GGML_SPARSE_PI_INFERENCE = 2,
+    };
+
     // model file types
     enum ggml_ftype {
         GGML_FTYPE_UNKNOWN        = -1,
@@ -466,8 +474,12 @@ extern "C" {
         GGML_OP_GROUP_NORM,
 
         GGML_OP_MUL_MAT,
+        GGML_OP_MUL_MAT_SPARSE,
+        GGML_OP_AXPY,
         GGML_OP_MUL_MAT_ID,
         GGML_OP_OUT_PROD,
+
+        GGML_OP_ATTN_HEAD_SPARSE,
 
         GGML_OP_SCALE,
         GGML_OP_SET,
@@ -1134,6 +1146,23 @@ extern "C" {
             struct ggml_tensor  * as,
             struct ggml_tensor  * b,
             struct ggml_tensor  * ids);
+
+    GGML_API struct ggml_tensor *ggml_mul_mat_idx(
+            struct ggml_context *ctx,
+            struct ggml_tensor *a,
+            struct ggml_tensor *b,
+            struct ggml_tensor *sparse_idx);
+    GGML_API struct ggml_tensor *ggml_axpy(
+            struct ggml_context *ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            struct ggml_tensor  * sparse_idx);
+
+    GGML_API struct ggml_tensor * ggml_attn_head_sparse(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,    // kqv heads
+            struct ggml_tensor  * b,    // head sparsity idx
+            float                 top);
 
     // A: m columns, n rows,
     // B: p columns, n rows,
@@ -2286,6 +2315,8 @@ extern "C" {
     };
 
     GGML_API struct gguf_context * gguf_init_empty(void);
+    GGML_API struct gguf_context * gguf_init_empty_sparse(void);
+    GGML_API struct gguf_context * gguf_init_empty_sparse_pi(void);
     GGML_API struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params);
     //GGML_API struct gguf_context * gguf_init_from_buffer(..);
 
@@ -2323,6 +2354,7 @@ extern "C" {
     GGML_API const void * gguf_get_arr_data(const struct gguf_context * ctx, int key_id);
     GGML_API const char * gguf_get_arr_str (const struct gguf_context * ctx, int key_id, int i);
 
+    GGML_API enum ggml_sparse_deriv gguf_get_sparse_deriv(const struct gguf_context * ctx);
     GGML_API int            gguf_get_n_tensors    (const struct gguf_context * ctx);
     GGML_API int            gguf_find_tensor      (const struct gguf_context * ctx, const char * name);
     GGML_API size_t         gguf_get_tensor_offset(const struct gguf_context * ctx, int i);
@@ -2412,6 +2444,10 @@ extern "C" {
     GGML_API int ggml_cpu_has_vsx        (void);
     GGML_API int ggml_cpu_has_cann       (void);
     GGML_API int ggml_cpu_has_llamafile  (void);
+
+
+    // TODO: these should be moved to the context
+    extern float sparse_pred_threshold;
 
 #ifdef  __cplusplus
 // restrict not standard in C++

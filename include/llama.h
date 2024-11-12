@@ -409,6 +409,11 @@ extern "C" {
                              const char * path_model,
               struct llama_model_params   params);
 
+    LLAMA_API struct llama_model * llama_load_model_from_file_with_context(
+                             const char * path_model,
+            struct llama_model_params     params,
+            struct llama_context_params * cparams);
+
     LLAMA_API void llama_free_model(struct llama_model * model);
 
     // TODO: rename to llama_init_from_model
@@ -444,6 +449,10 @@ extern "C" {
     LLAMA_API enum llama_pooling_type llama_pooling_type(const struct llama_context * ctx);
     LLAMA_API enum llama_vocab_type   llama_vocab_type  (const struct llama_model * model);
     LLAMA_API enum llama_rope_type    llama_rope_type   (const struct llama_model * model);
+
+    LLAMA_API bool llama_use_sparse_inference(const struct llama_model * model);
+    LLAMA_API bool llama_is_sparse_pi(const struct llama_model * model);
+    LLAMA_API bool llama_use_sparse_attention(const struct llama_model * model);
 
     // Get the model's RoPE frequency scaling factor
     LLAMA_API float llama_rope_freq_scale_train(const struct llama_model * model);

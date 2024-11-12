@@ -1,6 +1,8 @@
 #define _CRT_SECURE_NO_DEPRECATE // Disables "unsafe" warnings on Windows
 #define _USE_MATH_DEFINES // For M_PI on MSVC
 
+float sparse_pred_threshold = 0.;
+
 #include "ggml-backend.h"
 #include "ggml-impl.h"
 #include "ggml-cpu-impl.h"
@@ -933,7 +935,11 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "MUL_MAT",
     "MUL_MAT_ID",
+    "MUL_MAT_SPARSE",
+    "AXPY",
     "OUT_PROD",
+
+    "ATTN_HEAD_SPARSE",
 
     "SCALE",
     "SET",
@@ -2768,6 +2774,91 @@ struct ggml_tensor * ggml_mul_mat_id(
     result->src[0] = as;
     result->src[1] = b;
     result->src[2] = ids;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_mul_mat_idx(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        struct ggml_tensor  * sparse_idx) {
+    GGML_ASSERT(!ggml_is_transposed(a));
+
+    bool is_node = false;
+
+    if (a->grad || b->grad) {
+        is_node = true;
+    }
+
+    const int64_t ne[4] = { a->ne[1], b->ne[1], b->ne[2], b->ne[3] };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, MAX(a->n_dims, b->n_dims), ne);
+
+    result->op   = GGML_OP_MUL_MAT_SPARSE;
+    result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
+    result->src[0] = a;
+    result->src[1] = b;
+    result->src[2] = sparse_idx;
+    result->src[3] = NULL;
+
+    int32_t params[] = { 1 };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    return result;
+}
+
+struct ggml_tensor * ggml_axpy(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        struct ggml_tensor  * sparse_idx) {
+    GGML_ASSERT(a != NULL && b != NULL);
+    GGML_ASSERT(!ggml_is_transposed(a));
+    bool is_node = false;
+
+    if (a->grad || b->grad) {
+        is_node = true;
+    }
+
+    const int64_t ne[4] = { a->ne[0], b->ne[1], b->ne[2], b->ne[3] };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, MAX(a->n_dims, b->n_dims), ne);
+
+    result->op   = GGML_OP_AXPY;
+    result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
+    result->src[0] = a;
+    result->src[1] = b;
+    result->src[2] = sparse_idx;
+    result->src[3] = NULL;
+
+    int32_t params[] = { 1 };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    return result;
+}
+
+struct ggml_tensor * ggml_attn_head_sparse(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        float                 top) {
+    GGML_ASSERT(!ggml_is_transposed(a));
+
+    bool is_node = false;
+
+    if (a->grad || b->grad) {
+        is_node = true;
+    }
+
+    struct ggml_tensor * result = ggml_view_tensor(ctx, a);
+
+    result->op   = GGML_OP_ATTN_HEAD_SPARSE;
+    result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    int32_t op_params[1] = { };
+    memcpy(op_params + 0, &top, sizeof(float));
+    ggml_set_op_params(result, op_params, sizeof(op_params));
 
     return result;
 }
@@ -5492,7 +5583,13 @@ static void ggml_compute_backward(struct ggml_context * ctx, struct ggml_tensor 
             {
                 GGML_ABORT("fatal error"); // TODO: not implemented
             }
+        case GGML_OP_ATTN_HEAD_SPARSE:
+            {
+                GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case GGML_OP_MUL_MAT:
+        case GGML_OP_MUL_MAT_SPARSE:
+        case GGML_OP_AXPY:
             {
                 // https://cs231n.github.io/optimization-2/#staged
                 // # forward pass
@@ -6977,6 +7074,7 @@ struct gguf_tensor_info {
 
 struct gguf_context {
     struct gguf_header header;
+    enum ggml_sparse_deriv sparse_deriv;
 
     struct gguf_kv          * kv;
     struct gguf_tensor_info * infos;
@@ -7117,6 +7215,18 @@ struct gguf_context * gguf_init_empty(void) {
     return ctx;
 }
 
+struct gguf_context * gguf_init_empty_sparse(void) {
+    struct gguf_context * ctx = gguf_init_empty();
+    memcpy(ctx->header.magic, GGUF_POWERINFER_MAGIC, sizeof(ctx->header.magic));
+    return ctx;
+}
+
+struct gguf_context * gguf_init_empty_sparse_pi(void) {
+    struct gguf_context * ctx = gguf_init_empty();
+    memcpy(ctx->header.magic, GGUF_SPARSE_PI_MAGIC, sizeof(ctx->header.magic));
+    return ctx;
+}
+
 struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params) {
     FILE * file = ggml_fopen(fname, "rb");
     if (!file) {
@@ -7128,17 +7238,22 @@ struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_p
     size_t offset = 0;
 
     char magic[4];
+    enum ggml_sparse_deriv sparse_deriv;
 
     // check the magic before making allocations
     {
         gguf_fread_el(file, &magic, sizeof(magic), &offset);
 
-        for (uint32_t i = 0; i < sizeof(magic); i++) {
-            if (magic[i] != GGUF_MAGIC[i]) {
-                fprintf(stderr, "%s: invalid magic characters '%c%c%c%c'\n", __func__, magic[0], magic[1], magic[2], magic[3]);
-                fclose(file);
-                return NULL;
-            }
+        if (strncmp(magic, GGUF_MAGIC, sizeof(magic)) == 0) {
+            sparse_deriv = GGML_DENSE_INFERENCE;
+        } else if (strncmp(magic, GGUF_POWERINFER_MAGIC, sizeof(magic)) == 0) {
+            sparse_deriv = GGML_SPARSE_INFERENCE;
+        } else if (strncmp(magic, GGUF_SPARSE_PI_MAGIC, sizeof(magic)) == 0) {
+            sparse_deriv = GGML_SPARSE_PI_INFERENCE;
+        } else {
+            fprintf(stderr, "%s: invalid magic characters %s.\n", __func__, magic);
+            fclose(file);
+            return NULL;
         }
     }
 
@@ -7150,6 +7265,7 @@ struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_p
         fclose(file);
         return NULL;
     }
+    ctx->sparse_deriv = sparse_deriv;
 
     // read the header
     {
@@ -7678,6 +7794,10 @@ const void * gguf_get_val_data(const struct gguf_context * ctx, int key_id) {
 
 int gguf_get_n_tensors(const struct gguf_context * ctx) {
     return ctx->header.n_tensors;
+}
+
+enum ggml_sparse_deriv gguf_get_sparse_deriv(const struct gguf_context * ctx) {
+    return ctx->sparse_deriv;
 }
 
 int gguf_find_tensor(const struct gguf_context * ctx, const char * name) {
