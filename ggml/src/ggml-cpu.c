@@ -12253,7 +12253,9 @@ static void ggml_compute_forward_attn_head_sparse(
         const struct ggml_tensor * src1, // asl : { n_heads,     n_tokens, 1,         1 }
         struct ggml_tensor * dst) {
 
-    GGML_ASSERT(params->ith == 0);
+    if (params->ith != 0) {
+        return;
+    }
 
     float top;
     memcpy(&top, (int32_t *) dst->op_params + 0, sizeof(float));
@@ -12455,7 +12457,8 @@ static void ggml_compute_forward_mul_mat_sparse(
     enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
     ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
 
-    const float threshold = sparse_pred_threshold;
+    float threshold;
+    memcpy(&threshold, (int32_t *) dst->op_params + 0, sizeof(float));
 
     GGML_ASSERT(ne0 == ne01);
     GGML_ASSERT(ne1 == ne11);
@@ -12620,7 +12623,8 @@ static void ggml_compute_forward_mul_mat_axpy(
     enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
     ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
 
-    const float threshold = sparse_pred_threshold;
+    float threshold;
+    memcpy(&threshold, (int32_t *) dst->op_params + 0, sizeof(float));
 
     // we don't support permuted src0 or src1
     GGML_ASSERT(nb00 == ggml_type_size(type));
@@ -12749,7 +12753,8 @@ static void ggml_compute_forward_mul_mat_axpy_q4_0(
     enum ggml_type    const vec_dot_type          = type_traits_cpu[type].vec_dot_type;
     ggml_from_float_t const from_float_to_vec_dot = ggml_get_type_traits(vec_dot_type)->from_float;
 
-    const float threshold = sparse_pred_threshold;
+    float threshold;
+    memcpy(&threshold, (int32_t *) dst->op_params + 0, sizeof(float));
 
     // don't support permuted src0 or src1
     GGML_ASSERT(nb00 == ggml_type_size(type));

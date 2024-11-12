@@ -1,8 +1,6 @@
 #define _CRT_SECURE_NO_DEPRECATE // Disables "unsafe" warnings on Windows
 #define _USE_MATH_DEFINES // For M_PI on MSVC
 
-float sparse_pred_threshold = 0.;
-
 #include "ggml-backend.h"
 #include "ggml-impl.h"
 #include "ggml-cpu-impl.h"
@@ -2782,7 +2780,8 @@ struct ggml_tensor * ggml_mul_mat_idx(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         struct ggml_tensor  * b,
-        struct ggml_tensor  * sparse_idx) {
+        struct ggml_tensor  * sparse_idx,
+        float                 threshold) {
     GGML_ASSERT(!ggml_is_transposed(a));
 
     bool is_node = false;
@@ -2801,8 +2800,9 @@ struct ggml_tensor * ggml_mul_mat_idx(
     result->src[2] = sparse_idx;
     result->src[3] = NULL;
 
-    int32_t params[] = { 1 };
-    ggml_set_op_params(result, params, sizeof(params));
+    int32_t op_params[1] = { };
+    memcpy(op_params + 0, &threshold, sizeof(float));
+    ggml_set_op_params(result, op_params, sizeof(op_params));
 
     return result;
 }
@@ -2811,7 +2811,8 @@ struct ggml_tensor * ggml_axpy(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         struct ggml_tensor  * b,
-        struct ggml_tensor  * sparse_idx) {
+        struct ggml_tensor  * sparse_idx,
+        float                 threshold) {
     GGML_ASSERT(a != NULL && b != NULL);
     GGML_ASSERT(!ggml_is_transposed(a));
     bool is_node = false;
@@ -2830,8 +2831,9 @@ struct ggml_tensor * ggml_axpy(
     result->src[2] = sparse_idx;
     result->src[3] = NULL;
 
-    int32_t params[] = { 1 };
-    ggml_set_op_params(result, params, sizeof(params));
+    int32_t op_params[1] = { };
+    memcpy(op_params + 0, &threshold, sizeof(float));
+    ggml_set_op_params(result, op_params, sizeof(op_params));
 
     return result;
 }

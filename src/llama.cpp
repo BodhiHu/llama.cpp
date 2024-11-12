@@ -9703,13 +9703,14 @@ static struct ggml_tensor * llm_build_sparse_mul_mat(
          struct ggml_tensor * up,
          struct ggml_tensor * inp,
          struct ggml_tensor * idx,
+                      float   threshold,
          const llm_build_cb & cb,
                  const char * name,
                          int il) {
     std::string full_name = "ffn_" + std::string(name) + "_sparse";
     ggml_tensor * out = nullptr;
 
-    out = ggml_mul_mat_idx(ctx, up, inp, idx);
+    out = ggml_mul_mat_idx(ctx, up, inp, idx, threshold);
     cb(out, full_name.c_str(), il);
 
     return out;
@@ -9720,13 +9721,14 @@ static struct ggml_tensor * llm_build_sparse_axpy(
          struct ggml_tensor * w_t,
          struct ggml_tensor * x,
          struct ggml_tensor * sparse_idx,
+                      float   threshold,
          const llm_build_cb & cb,
                  const char * name,
                          int il) {
     std::string full_name = "ffn_" + std::string(name) + "_sparse";
     ggml_tensor * out = nullptr;
 
-    out = ggml_axpy(ctx, w_t, x, sparse_idx);
+    out = ggml_axpy(ctx, w_t, x, sparse_idx, threshold);
     cb(out, full_name.c_str(), il);
 
     return out;
@@ -9734,6 +9736,7 @@ static struct ggml_tensor * llm_build_sparse_axpy(
 
 static struct ggml_tensor * llm_build_ffn_sparse(
         struct ggml_context * ctx,
+       struct llama_context & lctx,
          struct ggml_tensor * cur,
          struct ggml_tensor * up,
          struct ggml_tensor * up_b,
@@ -9748,6 +9751,7 @@ static struct ggml_tensor * llm_build_ffn_sparse(
           llm_ffn_gate_type   type_gate,
          const llm_build_cb & cb_outer,
                         int   il) {
+    const llama_hparams & hparams = lctx.model.hparams;
     ggml_tensor * ffn_input = cur;
 
     llm_build_cb cb = [&cb_outer, il](struct ggml_tensor * tensor, const char * name, int _il) {
@@ -9776,7 +9780,7 @@ static struct ggml_tensor * llm_build_ffn_sparse(
     };
 
     // FFN up
-    struct ggml_tensor * up_out = llm_build_sparse_mul_mat(ctx, up, ffn_input, idx, cb_outer, "up", il);
+    struct ggml_tensor * up_out = llm_build_sparse_mul_mat(ctx, up, ffn_input, idx, hparams.sparse_pred_threshold, cb_outer, "up", il);
     if (up_b) {
         up_out = ggml_add(ctx, up_out, up_b);
         cb(up_out, "ffn_up_b", il);
@@ -9785,7 +9789,7 @@ static struct ggml_tensor * llm_build_ffn_sparse(
     struct ggml_tensor * gate_out = nullptr;
     if (gate) {
         ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : up_out;
-        gate_out = llm_build_sparse_mul_mat(ctx, gate, gate_input, idx, cb_outer, "gate", il);
+        gate_out = llm_build_sparse_mul_mat(ctx, gate, gate_input, idx, hparams.sparse_pred_threshold, cb_outer, "gate", il);
         if (gate_b) {
             gate_out = ggml_add(ctx, gate_out, gate_b);
             cb(gate_out, "ffn_gate_b", il);
@@ -9814,7 +9818,7 @@ static struct ggml_tensor * llm_build_ffn_sparse(
         cur = act_fn(up_out, "ffn_up_act");
     }
 
-    cur = llm_build_sparse_axpy(ctx, down_t, cur, idx, cb_outer, "down", il);
+    cur = llm_build_sparse_axpy(ctx, down_t, cur, idx, hparams.sparse_pred_threshold, cb_outer, "down", il);
 
     if (down_b) {
         cur = ggml_add(ctx, cur, down_b);

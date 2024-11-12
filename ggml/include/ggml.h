@@ -1148,15 +1148,17 @@ extern "C" {
             struct ggml_tensor  * ids);
 
     GGML_API struct ggml_tensor *ggml_mul_mat_idx(
-            struct ggml_context *ctx,
-            struct ggml_tensor *a,
-            struct ggml_tensor *b,
-            struct ggml_tensor *sparse_idx);
-    GGML_API struct ggml_tensor *ggml_axpy(
-            struct ggml_context *ctx,
+            struct ggml_context * ctx,
             struct ggml_tensor  * a,
             struct ggml_tensor  * b,
-            struct ggml_tensor  * sparse_idx);
+            struct ggml_tensor  * sparse_idx,
+            float                 threshold);
+    GGML_API struct ggml_tensor *ggml_axpy(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            struct ggml_tensor  * sparse_idx,
+            float                 threshold);
 
     GGML_API struct ggml_tensor * ggml_attn_head_sparse(
             struct ggml_context * ctx,
@@ -2444,10 +2446,6 @@ extern "C" {
     GGML_API int ggml_cpu_has_vsx        (void);
     GGML_API int ggml_cpu_has_cann       (void);
     GGML_API int ggml_cpu_has_llamafile  (void);
-
-
-    // TODO: these should be moved to the context
-    extern float sparse_pred_threshold;
 
 #ifdef  __cplusplus
 // restrict not standard in C++
