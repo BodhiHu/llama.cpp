@@ -2439,7 +2439,6 @@ struct llama_hparams {
     enum llama_rope_type         rope_type               = LLAMA_ROPE_TYPE_NONE;
     enum llama_rope_scaling_type rope_scaling_type_train = LLAMA_ROPE_SCALING_TYPE_NONE;
 
-    // sparse predictor threshold if sparse inference is enabled
     float sparse_pred_threshold = (float)atof(
         getenv("LLAMA_SPARSE_PRED_THRESHOLD") ? getenv("LLAMA_SPARSE_PRED_THRESHOLD") : "0.0"
     );
@@ -2874,7 +2873,7 @@ struct llama_model {
 
     std::string name = "n/a";
 
-    ggml_sparse_deriv sparse_deriv;
+    bool use_sparse_pred = false;
 
     llama_hparams hparams = {};
     llama_vocab   vocab;
@@ -4247,8 +4246,6 @@ struct llama_model_loader {
     int n_tensors = 0;
     int n_created = 0;
 
-    ggml_sparse_deriv sparse_deriv;
-
     int64_t n_elements = 0;
     size_t  n_bytes    = 0;
 
@@ -4410,7 +4407,6 @@ struct llama_model_loader {
 
         n_kv      = gguf_get_n_kv(meta.get());
         n_tensors = weights_map.size();
-        sparse_deriv = gguf_get_sparse_deriv(ctx);
 
         fver = (enum llama_fver) gguf_get_version(meta.get());
 
@@ -5431,13 +5427,6 @@ static void llm_load_hparams(
         hparams.n_rot = 0;
         hparams.n_embd_head_k = 0;
         hparams.n_embd_head_v = 0;
-    }
-
-    if (gguf_get_sparse_deriv(ctx)) {
-        // read sparse threshold override if sparse deriv is enabled
-        ml.get_key(LLM_KV_SPARSE_THRESHOLD, hparams.sparse_pred_threshold, false);
-        if (getenv("LLAMA_SPARSE_PRED_THRESHOLD"))
-            hparams.sparse_pred_threshold = (float)atof(getenv("LLAMA_SPARSE_PRED_THRESHOLD"));
     }
 
     // arch-specific KVs
@@ -6948,7 +6937,8 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
         LLAMA_LOG_INFO("%s: f_attention_scale = %f\n", __func__, hparams.f_attention_scale);
     }
 
-    if (model.sparse_deriv > 0) {
+    // model.hparams
+    if (model.use_sparse_pred) {
         // sparse inference
         LLAMA_LOG_INFO("%s: sparse_pred_threshold = %.2f\n", __func__, hparams.sparse_pred_threshold);
         LLAMA_LOG_INFO("%s: sparse_heads_top      = %.2f\n", __func__, hparams.sparse_heads_top);
@@ -7571,7 +7561,7 @@ static bool llm_load_tensors(
                         layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED);
 
-                        if (llama_is_sparse_pi(&model)) {
+                        if (model.use_sparse_pred) {
                             layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, GGML_NE_WILDCARD});
                             layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {GGML_NE_WILDCARD, n_head});
                         }
@@ -7583,7 +7573,7 @@ static bool llm_load_tensors(
                         if (n_expert == 0) {
                             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
                             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
-                            if (llama_use_sparse_inference(&model)) {
+                            if (model.use_sparse_pred) {
                                 layer.mlp_pre_w1 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC1, "weight", i), {n_embd, GGML_NE_WILDCARD});
                                 layer.mlp_pre_w2 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC2, "weight", i), {GGML_NE_WILDCARD, n_ff});
                             }
@@ -9229,13 +9219,6 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
     try {
         llama_model_loader ml(fname, params.use_mmap, params.check_tensors, params.kv_overrides);
 
-        if (ml.sparse_deriv == GGML_SPARSE_INFERENCE) {
-            LLAMA_LOG_INFO("%s: PowerInfer model loaded. Sparse inference will be used.\n", __func__);
-        } else if (ml.sparse_deriv == GGML_SPARSE_PI_INFERENCE) {
-            LLAMA_LOG_INFO("%s: Sparse PI model loaded. Sparse PI inference will be used.\n", __func__);
-        }
-
-        model.sparse_deriv = ml.sparse_deriv;
         model.hparams.vocab_only = params.vocab_only;
 
         try {
@@ -10800,7 +10783,6 @@ struct llm_build_context {
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_rot);
-        GGML_ASSERT(llama_use_sparse_inference(&model));
 
         struct ggml_tensor * cur;
         struct ggml_tensor * inpL;
@@ -10888,7 +10870,7 @@ struct llm_build_context {
                         LLM_NORM_RMS, cb, il);
                 llm_ffn_gate_type gate_type = model.arch == LLM_ARCH_BAMBOO ? LLM_FFN_SYM : LLM_FFN_PAR;
 
-                if (llama_use_sparse_inference(&model)) {
+                if (model.use_sparse_pred) {
                     llm_build_cb cbs = [&](ggml_tensor * cur, const char * name, int _il) {
                         std::string name_str = std::string(name) + "-" + std::to_string(il);
                         ggml_set_name(cur, name_str.c_str());
@@ -16767,10 +16749,6 @@ static struct ggml_cgraph * llama_build_graph(
                   bool   worst_case) {
     const auto & model = lctx.model;
 
-    // For sparse deriv, we offload layers from the starting layer to the end.
-    // For dense deriv, we offload layers from the end to the starting layer.
-    bool offload_starting_layers = lctx.model.sparse_deriv;
-
     // this callback allows us to apply custom logic to each tensor (e.g. ggml-alloc, offloading, etc.)
     llm_build_cb cb = [&](struct ggml_tensor * cur, const char * name, int il) {
         if (il >= 0) {
@@ -16814,7 +16792,7 @@ static struct ggml_cgraph * llama_build_graph(
         case LLM_ARCH_GRANITE:
         case LLM_ARCH_GRANITE_MOE:
             {
-                if (llama_use_sparse_inference(&model)) {
+                if (model.use_sparse_pred) {
                     result = llm.build_sparse_llama();
                 } else {
                     result = llm.build_llama();
@@ -18919,11 +18897,7 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
     }
 
     const size_t align = GGUF_DEFAULT_ALIGNMENT;
-    // gguf_context_ptr ctx_out { gguf_init_empty() };
-    gguf_context_ptr ctx_out =
-        ml.sparse_deriv == GGML_SPARSE_INFERENCE    ? { gguf_init_empty_sparse() } :
-        ml.sparse_deriv == GGML_SPARSE_PI_INFERENCE ? { gguf_init_empty_sparse_pi() } :
-        { gguf_init_empty() };
+    gguf_context_ptr ctx_out { gguf_init_empty() };
 
     // copy the KV pairs from the input file
     gguf_set_kv     (ctx_out.get(), ml.meta.get());
@@ -19519,6 +19493,7 @@ struct llama_context_params llama_context_default_params() {
         /*.offload_kqv                 =*/ true,
         /*.flash_attn                  =*/ false,
         /*.no_perf                     =*/ true,
+        /*.sparse_pred                 =*/ false,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
     };
@@ -19782,6 +19757,8 @@ struct llama_context * llama_new_context_with_model(
     cparams.flash_attn       = params.flash_attn;
     cparams.no_perf          = params.no_perf;
     cparams.pooling_type     = params.pooling_type;
+
+    model->use_sparse_pred   = params.sparse_pred;
 
     cparams.n_ctx            = params.n_ctx           == 0    ? hparams.n_ctx_train           : params.n_ctx;
     cparams.rope_freq_base   = params.rope_freq_base  == 0.0f ? hparams.rope_freq_base_train  : params.rope_freq_base;
@@ -20084,16 +20061,8 @@ void llama_free(struct llama_context * ctx) {
     delete ctx;
 }
 
-bool llama_use_sparse_inference(const struct llama_model * model) {
-    return model->sparse_deriv == GGML_SPARSE_INFERENCE || model->sparse_deriv == GGML_SPARSE_PI_INFERENCE;
-}
-
-bool llama_is_sparse_pi(const struct llama_model * model) {
-    return model->sparse_deriv == GGML_SPARSE_PI_INFERENCE;
-}
-
 bool llama_use_sparse_attention(const struct llama_model * model) {
-    return llama_is_sparse_pi(model)
+    return model->use_sparse_pred
         && (model->hparams.sparse_heads_top > 0.0 && model->hparams.sparse_heads_top < 1.0);
 }
 

@@ -1053,6 +1053,7 @@ struct llama_context_params common_context_params_to_llama(const common_params &
     cparams.offload_kqv       = !params.no_kv_offload;
     cparams.flash_attn        = params.flash_attn;
     cparams.no_perf           = params.no_perf;
+    cparams.sparse_pred       = params.sparsity_predictors;
 
     if (params.reranking) {
         cparams.embeddings    = true;

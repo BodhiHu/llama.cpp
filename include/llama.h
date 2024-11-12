@@ -340,6 +340,8 @@ extern "C" {
         bool flash_attn;  // whether to use flash attention [EXPERIMENTAL]
         bool no_perf;     // whether to measure performance timings
 
+        bool sparse_pred; // whether to use sparsity predictors
+
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted
         // currently works only with CPU execution

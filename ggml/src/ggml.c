@@ -7076,7 +7076,6 @@ struct gguf_tensor_info {
 
 struct gguf_context {
     struct gguf_header header;
-    enum ggml_sparse_deriv sparse_deriv;
 
     struct gguf_kv          * kv;
     struct gguf_tensor_info * infos;
@@ -7217,18 +7216,6 @@ struct gguf_context * gguf_init_empty(void) {
     return ctx;
 }
 
-struct gguf_context * gguf_init_empty_sparse(void) {
-    struct gguf_context * ctx = gguf_init_empty();
-    memcpy(ctx->header.magic, GGUF_POWERINFER_MAGIC, sizeof(ctx->header.magic));
-    return ctx;
-}
-
-struct gguf_context * gguf_init_empty_sparse_pi(void) {
-    struct gguf_context * ctx = gguf_init_empty();
-    memcpy(ctx->header.magic, GGUF_SPARSE_PI_MAGIC, sizeof(ctx->header.magic));
-    return ctx;
-}
-
 struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params) {
     FILE * file = ggml_fopen(fname, "rb");
     if (!file) {
@@ -7240,22 +7227,17 @@ struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_p
     size_t offset = 0;
 
     char magic[4];
-    enum ggml_sparse_deriv sparse_deriv;
 
     // check the magic before making allocations
     {
         gguf_fread_el(file, &magic, sizeof(magic), &offset);
 
-        if (strncmp(magic, GGUF_MAGIC, sizeof(magic)) == 0) {
-            sparse_deriv = GGML_DENSE_INFERENCE;
-        } else if (strncmp(magic, GGUF_POWERINFER_MAGIC, sizeof(magic)) == 0) {
-            sparse_deriv = GGML_SPARSE_INFERENCE;
-        } else if (strncmp(magic, GGUF_SPARSE_PI_MAGIC, sizeof(magic)) == 0) {
-            sparse_deriv = GGML_SPARSE_PI_INFERENCE;
-        } else {
-            fprintf(stderr, "%s: invalid magic characters %s.\n", __func__, magic);
-            fclose(file);
-            return NULL;
+        for (uint32_t i = 0; i < sizeof(magic); i++) {
+            if (magic[i] != GGUF_MAGIC[i]) {
+                fprintf(stderr, "%s: invalid magic characters '%c%c%c%c'\n", __func__, magic[0], magic[1], magic[2], magic[3]);
+                fclose(file);
+                return NULL;
+            }
         }
     }
 
@@ -7267,7 +7249,6 @@ struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_p
         fclose(file);
         return NULL;
     }
-    ctx->sparse_deriv = sparse_deriv;
 
     // read the header
     {
@@ -7796,10 +7777,6 @@ const void * gguf_get_val_data(const struct gguf_context * ctx, int key_id) {
 
 int gguf_get_n_tensors(const struct gguf_context * ctx) {
     return ctx->header.n_tensors;
-}
-
-enum ggml_sparse_deriv gguf_get_sparse_deriv(const struct gguf_context * ctx) {
-    return ctx->sparse_deriv;
 }
 
 int gguf_find_tensor(const struct gguf_context * ctx, const char * name) {

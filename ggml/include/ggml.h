@@ -240,8 +240,6 @@
 #define GGML_ROPE_TYPE_NEOX 2
 
 #define GGUF_MAGIC "GGUF"
-#define GGUF_POWERINFER_MAGIC "PWRI"
-#define GGUF_SPARSE_PI_MAGIC  "SPPI"
 
 #define GGUF_VERSION 3
 
@@ -404,12 +402,6 @@ extern "C" {
         GGML_BACKEND_TYPE_CPU = 0,
         GGML_BACKEND_TYPE_GPU = 10,
         GGML_BACKEND_TYPE_GPU_SPLIT = 20,
-    };
-
-    enum ggml_sparse_deriv {
-        GGML_DENSE_INFERENCE     = 0,
-        GGML_SPARSE_INFERENCE    = 1,
-        GGML_SPARSE_PI_INFERENCE = 2,
     };
 
     // model file types
@@ -2317,8 +2309,6 @@ extern "C" {
     };
 
     GGML_API struct gguf_context * gguf_init_empty(void);
-    GGML_API struct gguf_context * gguf_init_empty_sparse(void);
-    GGML_API struct gguf_context * gguf_init_empty_sparse_pi(void);
     GGML_API struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params);
     //GGML_API struct gguf_context * gguf_init_from_buffer(..);
 
