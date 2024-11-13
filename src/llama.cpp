@@ -7561,9 +7561,9 @@ static bool llm_load_tensors(
                         layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED);
 
-                        if (model.use_sparse_pred) {
-                            layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, GGML_NE_WILDCARD});
-                            layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {GGML_NE_WILDCARD, n_head});
+                        if (llama_use_sparse_attention(&model)) {
+                            layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, 1000}, 0);
+                            layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {1000, n_head}, 0);
                         }
 
                         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
@@ -7574,8 +7574,8 @@ static bool llm_load_tensors(
                             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
                             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
                             if (model.use_sparse_pred) {
-                                layer.mlp_pre_w1 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC1, "weight", i), {n_embd, GGML_NE_WILDCARD});
-                                layer.mlp_pre_w2 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC2, "weight", i), {GGML_NE_WILDCARD, n_ff});
+                                layer.mlp_pre_w1 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC1, "weight", i), {n_embd, 1024}, 0);
+                                layer.mlp_pre_w2 = create_tensor(tn(LLM_TENSOR_MLP_PRED_FC2, "weight", i), {1024, n_ff}, 0);
                             }
                             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
 
@@ -10818,8 +10818,8 @@ struct llm_build_context {
                 ggml_tensor * attn_sparse_logits = NULL;
                 if (llama_use_sparse_attention(&model) && (il >= 5 && il < (n_layer - 5))) {
                     // inpL               : {n_embd, batch.n_tokens}
-                    // layer.attn_pre_w1  : {n_embd, GGML_NE_WILDCARD}
-                    // layer.attn_pre_w2  : {GGML_NE_WILDCARD, n_head}
+                    // layer.attn_pre_w1  : {n_embd, 1000}
+                    // layer.attn_pre_w2  : {1000, n_head}
                     attn_sparse_logits = ggml_mul_mat(ctx0, model.layers[il].attn_pre_w1, inpL);
                     cb(attn_sparse_logits, "attn_pre_w1", il);
                     attn_sparse_logits = ggml_mul_mat(ctx0, model.layers[il].attn_pre_w2, attn_sparse_logits);
