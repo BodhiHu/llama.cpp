@@ -607,7 +607,6 @@ enum llm_tensor {
     LLM_TENSOR_CLS_OUT,
 
     // sparse tensors
-    LLM_TENSOR_FFN_DOWN_T,
     LLM_TENSOR_MLP_PRED_FC1,
     LLM_TENSOR_MLP_PRED_FC2,
     LLM_TENSOR_ATTN_PRED_1,
@@ -641,7 +640,6 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
             { LLM_TENSOR_FFN_UP_EXPS,     "blk.%d.ffn_up_exps" },
 
             // sparse tensors
-            { LLM_TENSOR_FFN_DOWN_T,      "blk.%d.ffn_down_t" },
             { LLM_TENSOR_MLP_PRED_FC1,    "blk.%d.fc1" },
             { LLM_TENSOR_MLP_PRED_FC2,    "blk.%d.fc2" },
             { LLM_TENSOR_ATTN_PRED_1,     "blk.%d.attn_pred1" },
@@ -2761,7 +2759,6 @@ struct llama_layer {
     // sparse predictor tensors
     struct ggml_tensor * attn_pre_w1;
     struct ggml_tensor * attn_pre_w2;
-    struct ggml_tensor * ffn_down_t;
     struct ggml_tensor * mlp_pre_w1;
     struct ggml_tensor * mlp_pre_w2;
 };
@@ -9467,12 +9464,36 @@ static struct ggml_tensor * llm_build_ffn(
          struct ggml_tensor * down_b,
          struct ggml_tensor * down_s,
          struct ggml_tensor * act_scales,
+         struct ggml_tensor * pre_w1,
+         struct ggml_tensor * pre_w2,
+         struct ggml_tensor * pred_inpl,
             llm_ffn_op_type   type_op,
           llm_ffn_gate_type   type_gate,
          const llm_build_cb & cb,
                         int   il) {
-    struct ggml_tensor * tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur) : cur;
-    cb(tmp, "ffn_up", il);
+
+    const llama_model & model = lctx.model;
+    const llama_hparams & hparams = model.hparams;
+    ggml_tensor * ffn_input = cur;
+
+    // build ffn sparse predictors if using sparse_pred
+    ggml_tensor * ffn_pred_idx = NULL;
+    if (model.use_sparse_pred && pre_w1 != NULL && pre_w2 != NULL && pred_inpl != NULL && up != NULL) {
+        ffn_pred_idx = ggml_mul_mat(ctx, pre_w1, pred_inpl);
+        cb(ffn_pred_idx, "ffn_pre_hidden", il);
+        ffn_pred_idx = ggml_mul_mat(ctx, pre_w2, ffn_pred_idx);
+        cb(ffn_pred_idx, "ffn_pre_out", il);
+    }
+
+    struct ggml_tensor * tmp;
+    if (ffn_pred_idx != NULL) {
+        tmp = llm_build_sparse_mul_mat(
+            ctx, up, ffn_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "up", il
+        );
+    } else {
+        tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur) : cur;
+        cb(tmp, "ffn_up", il);
+    }
 
     if (up_b) {
         tmp = ggml_add(ctx, tmp, up_b);
@@ -9484,7 +9505,16 @@ static struct ggml_tensor * llm_build_ffn(
         cb(tmp, "ffn_up_s", il);
     }
 
+    struct ggml_tensor * gate_out = nullptr;
     if (gate) {
+        if (ffn_pred_idx != NULL) {
+            ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : tmp;
+            gate_out = llm_build_sparse_mul_mat(
+                ctx, gate, gate_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il
+            );
+            gate = gate_out;
+        }
+
         switch (type_gate) {
             case LLM_FFN_SEQ:
                 {
@@ -9578,6 +9608,48 @@ static struct ggml_tensor * llm_build_ffn(
     }
 
     return cur;
+}
+
+static struct ggml_tensor * llm_build_ffn(
+        struct ggml_context * ctx,
+       struct llama_context & lctx,
+         struct ggml_tensor * cur,
+         struct ggml_tensor * up,
+         struct ggml_tensor * up_b,
+         struct ggml_tensor * up_s,
+         struct ggml_tensor * gate,
+         struct ggml_tensor * gate_b,
+         struct ggml_tensor * gate_s,
+         struct ggml_tensor * down,
+         struct ggml_tensor * down_b,
+         struct ggml_tensor * down_s,
+         struct ggml_tensor * act_scales,
+            llm_ffn_op_type   type_op,
+          llm_ffn_gate_type   type_gate,
+         const llm_build_cb & cb,
+                        int   il) {
+    return llm_build_ffn(
+        ctx,
+        lctx,
+        cur,
+        up,
+        up_b,
+        up_s,
+        gate,
+        gate_b,
+        gate_s,
+        down,
+        down_b,
+        down_s,
+        act_scales,
+        NULL,
+        NULL,
+        NULL,
+        type_op,
+        type_gate,
+        cb,
+        il
+    );
 }
 
 static struct ggml_tensor * llm_build_moe_ffn(
@@ -9715,100 +9787,6 @@ static struct ggml_tensor * llm_build_sparse_axpy(
     cb(out, full_name.c_str(), il);
 
     return out;
-}
-
-static struct ggml_tensor * llm_build_ffn_sparse(
-        struct ggml_context * ctx,
-       struct llama_context & lctx,
-         struct ggml_tensor * cur,
-         struct ggml_tensor * up,
-         struct ggml_tensor * up_b,
-         struct ggml_tensor * gate,
-         struct ggml_tensor * gate_b,
-         struct ggml_tensor * down_t,
-         struct ggml_tensor * down_b,
-         struct ggml_tensor * pre_w1,
-         struct ggml_tensor * pre_w2,
-         struct ggml_tensor * pred_inpl,
-            llm_ffn_op_type   type_op,
-          llm_ffn_gate_type   type_gate,
-         const llm_build_cb & cb_outer,
-                        int   il) {
-    const llama_hparams & hparams = lctx.model.hparams;
-    ggml_tensor * ffn_input = cur;
-
-    llm_build_cb cb = [&cb_outer, il](struct ggml_tensor * tensor, const char * name, int _il) {
-        cb_outer(tensor, name, il);
-    };
-
-    // prepare sparse idx
-    ggml_tensor * idx = ggml_mul_mat(ctx, pre_w1, pred_inpl);
-    cb(idx, "mlp_pre_hidden", il);
-    idx = ggml_relu(ctx, idx);
-    cb(idx, "mlp_pre_relu", il);
-    idx = ggml_mul_mat(ctx, pre_w2, idx);
-    cb_outer(idx, "mlp_pre_out", il);
-
-    auto act_fn = [&](ggml_tensor * tensor, const char * name) {
-        switch (type_op) {
-            case LLM_FFN_RELU:
-                {
-                    tensor = ggml_relu(ctx, tensor);
-                    cb(tensor, name, il);
-                } break;
-            default:
-                GGML_ASSERT(false && "unsupported activation function");
-        }
-        return tensor;
-    };
-
-    // FFN up
-    struct ggml_tensor * up_out = llm_build_sparse_mul_mat(ctx, up, ffn_input, idx, hparams.sparse_pred_threshold, cb_outer, "up", il);
-    if (up_b) {
-        up_out = ggml_add(ctx, up_out, up_b);
-        cb(up_out, "ffn_up_b", il);
-    }
-
-    struct ggml_tensor * gate_out = nullptr;
-    if (gate) {
-        ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : up_out;
-        gate_out = llm_build_sparse_mul_mat(ctx, gate, gate_input, idx, hparams.sparse_pred_threshold, cb_outer, "gate", il);
-        if (gate_b) {
-            gate_out = ggml_add(ctx, gate_out, gate_b);
-            cb(gate_out, "ffn_gate_b", il);
-        }
-        switch (type_gate) {
-            case LLM_FFN_PAR:
-                {
-                    ggml_tensor * act_gate = act_fn(gate_out, "ffn_gate_act");
-                    cur = ggml_mul(ctx, act_gate, up_out);
-                    cb(cur, "ffn_gate_par", il);
-                } break;
-            case LLM_FFN_SYM:
-                {
-                    ggml_tensor * act_gate = act_fn(gate_out, "ffn_gate_act");
-                    ggml_tensor * act_up = act_fn(up_out, "ffn_up_act");
-                    cur = ggml_mul(ctx, act_gate, act_up);
-                    cb(cur, "ffn_gate_sym", il);
-                } break;
-            case LLM_FFN_SEQ:
-                {
-                    cur = act_fn(gate_out, "ffn_gate_act");
-                } break;
-            default: GGML_ASSERT(false && "unsupported gate type");
-        }
-    } else {
-        cur = act_fn(up_out, "ffn_up_act");
-    }
-
-    cur = llm_build_sparse_axpy(ctx, down_t, cur, idx, hparams.sparse_pred_threshold, cb_outer, "down", il);
-
-    if (down_b) {
-        cur = ggml_add(ctx, cur, down_b);
-        cb(cur, "ffn_down_b", il);
-    }
-
-    return cur;
 }
 
 static struct ggml_tensor * llm_build_kqv(
@@ -9986,6 +9964,7 @@ static struct ggml_tensor * llm_build_kv(
          struct ggml_tensor * v_cur,
          struct ggml_tensor * q_cur,
          struct ggml_tensor * kq_mask,
+         struct ggml_tensor * attn_sparse_logits,
                     int32_t   n_tokens,
                     int32_t   kv_head,
                     int32_t   n_kv,
@@ -10005,10 +9984,48 @@ static struct ggml_tensor * llm_build_kv(
 
     struct ggml_tensor * cur;
 
-    cur  = llm_build_kqv(ctx, lctx, kv, graph, wo, wo_b, q_cur, kq_mask, n_tokens, n_kv, kq_scale, cb, il);
+    cur  = llm_build_kqv(ctx, lctx, kv, graph, wo, wo_b, q_cur, kq_mask, attn_sparse_logits, n_tokens, n_kv, kq_scale, cb, il);
     cb(cur, "kqv_out", il);
 
     return cur;
+}
+
+static struct ggml_tensor * llm_build_kv(
+        struct ggml_context * ctx,
+       struct llama_context & lctx,
+       const llama_kv_cache & kv,
+         struct ggml_cgraph * graph,
+         struct ggml_tensor * wo,
+         struct ggml_tensor * wo_b,
+         struct ggml_tensor * k_cur,
+         struct ggml_tensor * v_cur,
+         struct ggml_tensor * q_cur,
+         struct ggml_tensor * kq_mask,
+                    int32_t   n_tokens,
+                    int32_t   kv_head,
+                    int32_t   n_kv,
+                    float     kq_scale,
+         const llm_build_cb & cb,
+                    int       il) {
+    return llm_build_kv(
+       ctx,
+       lctx,
+       kv,
+       graph,
+       wo,
+       wo_b,
+       k_cur,
+       v_cur,
+       q_cur,
+       kq_mask,
+       NULL,
+       n_tokens,
+       kv_head,
+       n_kv,
+       kq_scale,
+       cb,
+       il
+    );
 }
 
 static struct ggml_tensor * llm_build_copy_mask_state(
@@ -10861,7 +10878,7 @@ struct llm_build_context {
 
                 cur = llm_build_kv(ctx0, lctx, kv_self, gf,
                         model.layers[il].wo, model.layers[il].bo,
-                        Kcur, Vcur, Qcur, KQ_mask, n_tokens, kv_head, n_kv, kq_scale, cb, il);
+                        Kcur, Vcur, Qcur, KQ_mask, attn_sparse_logits, n_tokens, kv_head, n_kv, kq_scale, cb, il);
             }
 
             if (il == n_layer - 1) {
@@ -10887,23 +10904,15 @@ struct llm_build_context {
                         LLM_NORM_RMS, cb, il);
                 cb(cur, "ffn_norm", il);
 
-                if (model.use_sparse_pred) {
-                    cur = llm_build_ffn_sparse(ctx0, lctx, cur,
-                        model.layers[il].ffn_up,   NULL,
-                        model.layers[il].ffn_gate, NULL,
-                        model.layers[il].ffn_down_t, NULL,
+                cur = llm_build_ffn(ctx0, lctx, cur,
+                        model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   NULL,
+                        model.layers[il].ffn_gate, model.layers[il].ffn_gate_b, NULL,
+                        model.layers[il].ffn_down, model.layers[il].ffn_down_b, NULL,
+                        NULL,
                         model.layers[il].mlp_pre_w1,
                         model.layers[il].mlp_pre_w2,
                         ffn_inp,
-                        LLM_FFN_RELU, LLM_FFN_PAR, cb, il);
-                } else {
-                    cur = llm_build_ffn(ctx0, lctx, cur,
-                            model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   NULL,
-                            model.layers[il].ffn_gate, model.layers[il].ffn_gate_b, NULL,
-                            model.layers[il].ffn_down, model.layers[il].ffn_down_b, NULL,
-                            NULL,
-                            LLM_FFN_SILU, LLM_FFN_PAR, cb, il);
-                }
+                        LLM_FFN_SILU, LLM_FFN_PAR, cb, il);
                 cb(cur, "ffn_out", il);
             } else {
                 // MoE branch
