@@ -2176,6 +2176,14 @@ inline static void ggml_vec_sum_bf16_ggf(const int n, float * s, const ggml_bf16
     *s = sum;
 }
 
+inline static void ggml_vec_sum_i32_ggf(const int n, int64_t * s, const int32_t * x) {
+    int64_t sum = 0;
+    for (int i = 0; i < n; ++i) {
+        sum += (int64_t)x[i];
+    }
+    *s = sum;
+}
+
 inline static void ggml_vec_max_f32(const int n, float * s, const float * x) {
 #ifndef GGML_USE_ACCELERATE
     float max = -INFINITY;
@@ -12306,8 +12314,6 @@ static void ggml_compute_forward_mul_mat_sparse_head(
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
               struct ggml_tensor * dst) {
-    int64_t t0 = ggml_perf_time_us();
-    UNUSED(t0);
 
     GGML_TENSOR_BINARY_OP_LOCALS;
 
@@ -12441,8 +12447,6 @@ static void ggml_compute_forward_mul_mat_sparse(
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
               struct ggml_tensor * dst) {
-    int64_t t0 = ggml_perf_time_us();
-    UNUSED(t0);
 
     GGML_TENSOR_BINARY_OP_LOCALS;
 
@@ -12610,8 +12614,6 @@ static void ggml_compute_forward_mul_mat_axpy(
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
               struct ggml_tensor * dst) {
-    int64_t t0 = ggml_perf_time_us();
-    UNUSED(t0);
 
     GGML_TENSOR_BINARY_OP_LOCALS;
 
@@ -12737,8 +12739,6 @@ static void ggml_compute_forward_mul_mat_axpy_q4_0(
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
               struct ggml_tensor * dst) {
-    int64_t t0 = ggml_perf_time_us();
-    UNUSED(t0);
 
     GGML_TENSOR_BINARY_OP_LOCALS;
 

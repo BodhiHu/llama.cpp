@@ -2346,7 +2346,6 @@ extern "C" {
     GGML_API const void * gguf_get_arr_data(const struct gguf_context * ctx, int key_id);
     GGML_API const char * gguf_get_arr_str (const struct gguf_context * ctx, int key_id, int i);
 
-    GGML_API enum ggml_sparse_deriv gguf_get_sparse_deriv(const struct gguf_context * ctx);
     GGML_API int            gguf_get_n_tensors    (const struct gguf_context * ctx);
     GGML_API int            gguf_find_tensor      (const struct gguf_context * ctx, const char * name);
     GGML_API size_t         gguf_get_tensor_offset(const struct gguf_context * ctx, int i);
