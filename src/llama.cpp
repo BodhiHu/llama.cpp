@@ -9371,8 +9371,9 @@ static struct ggml_tensor * llm_build_lora_mm(
         struct llama_context & lctx,
          struct ggml_context * ctx0,
           struct ggml_tensor * w,
-          struct ggml_tensor * cur) {
-    struct ggml_tensor * res = ggml_mul_mat(ctx0, w, cur);
+          struct ggml_tensor * cur,
+          struct ggml_tensor * mm_res) {
+    struct ggml_tensor * res = mm_res ? mm_res : ggml_mul_mat(ctx0, w, cur);
     for (auto & it : lctx.lora_adapters) {
         struct llama_lora_weight * lora = it.first->get_weight(w);
         if (lora == nullptr) {
@@ -9389,6 +9390,13 @@ static struct ggml_tensor * llm_build_lora_mm(
         res = ggml_add(ctx0, res, ab_cur);
     }
     return res;
+}
+static struct ggml_tensor * llm_build_lora_mm(
+        struct llama_context & lctx,
+         struct ggml_context * ctx0,
+          struct ggml_tensor * w,
+          struct ggml_tensor * cur) {
+    return llm_build_lora_mm(lctx, ctx0, w, cur, NULL);
 }
 
 // do mat_mul_id, while optionally apply lora
@@ -9591,7 +9599,10 @@ static struct ggml_tensor * llm_build_ffn(
     }
 
     if (down) {
-        cur = llm_build_lora_mm(lctx, ctx, down, cur);
+        struct ggml_tensor * mm_res = ffn_pred_idx
+            ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+            : NULL;
+        cur = llm_build_lora_mm(lctx, ctx, down, cur, mm_res);
     }
 
     if (down_b) {
