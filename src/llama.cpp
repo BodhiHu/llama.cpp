@@ -9289,6 +9289,42 @@ enum llm_norm_type {
     LLM_NORM_RMS,
 };
 
+static struct ggml_tensor * llm_build_sparse_mul_mat(
+        struct ggml_context * ctx,
+         struct ggml_tensor * up,
+         struct ggml_tensor * inp,
+         struct ggml_tensor * idx,
+                      float   threshold,
+         const llm_build_cb & cb,
+                 const char * name,
+                         int il) {
+    std::string full_name = "ffn_" + std::string(name) + "_sparse";
+    ggml_tensor * out = nullptr;
+
+    out = ggml_mul_mat_idx(ctx, up, inp, idx, threshold);
+    cb(out, full_name.c_str(), il);
+
+    return out;
+}
+
+static struct ggml_tensor * llm_build_sparse_axpy(
+        struct ggml_context * ctx,
+         struct ggml_tensor * w_t,
+         struct ggml_tensor * x,
+         struct ggml_tensor * sparse_idx,
+                      float   threshold,
+         const llm_build_cb & cb,
+                 const char * name,
+                         int il) {
+    std::string full_name = "ffn_" + std::string(name) + "_sparse";
+    ggml_tensor * out = nullptr;
+
+    out = ggml_axpy(ctx, w_t, x, sparse_idx, threshold);
+    cb(out, full_name.c_str(), il);
+
+    return out;
+}
+
 static struct ggml_tensor * llm_build_inp_embd(
         struct ggml_context * ctx,
        struct llama_context & lctx,
@@ -9762,42 +9798,6 @@ static struct ggml_tensor * llm_build_moe_ffn(
     }
 
     return moe_out;
-}
-
-static struct ggml_tensor * llm_build_sparse_mul_mat(
-        struct ggml_context * ctx,
-         struct ggml_tensor * up,
-         struct ggml_tensor * inp,
-         struct ggml_tensor * idx,
-                      float   threshold,
-         const llm_build_cb & cb,
-                 const char * name,
-                         int il) {
-    std::string full_name = "ffn_" + std::string(name) + "_sparse";
-    ggml_tensor * out = nullptr;
-
-    out = ggml_mul_mat_idx(ctx, up, inp, idx, threshold);
-    cb(out, full_name.c_str(), il);
-
-    return out;
-}
-
-static struct ggml_tensor * llm_build_sparse_axpy(
-        struct ggml_context * ctx,
-         struct ggml_tensor * w_t,
-         struct ggml_tensor * x,
-         struct ggml_tensor * sparse_idx,
-                      float   threshold,
-         const llm_build_cb & cb,
-                 const char * name,
-                         int il) {
-    std::string full_name = "ffn_" + std::string(name) + "_sparse";
-    ggml_tensor * out = nullptr;
-
-    out = ggml_axpy(ctx, w_t, x, sparse_idx, threshold);
-    cb(out, full_name.c_str(), il);
-
-    return out;
 }
 
 static struct ggml_tensor * llm_build_kqv(
