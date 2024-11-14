@@ -466,8 +466,12 @@ extern "C" {
         GGML_OP_GROUP_NORM,
 
         GGML_OP_MUL_MAT,
+        GGML_OP_MUL_MAT_SPARSE,
+        GGML_OP_AXPY,
         GGML_OP_MUL_MAT_ID,
         GGML_OP_OUT_PROD,
+
+        GGML_OP_ATTN_HEAD_SPARSE,
 
         GGML_OP_SCALE,
         GGML_OP_SET,
@@ -1134,6 +1138,25 @@ extern "C" {
             struct ggml_tensor  * as,
             struct ggml_tensor  * b,
             struct ggml_tensor  * ids);
+
+    GGML_API struct ggml_tensor *ggml_mul_mat_idx(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            struct ggml_tensor  * sparse_idx,
+            float                 threshold);
+    GGML_API struct ggml_tensor *ggml_axpy(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            struct ggml_tensor  * sparse_idx,
+            float                 threshold);
+
+    GGML_API struct ggml_tensor * ggml_attn_head_sparse(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,    // kqv heads
+            struct ggml_tensor  * b,    // head sparsity idx
+            float                 top);
 
     // A: m columns, n rows,
     // B: p columns, n rows,

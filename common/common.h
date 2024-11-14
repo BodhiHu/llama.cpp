@@ -180,6 +180,9 @@ struct common_params {
     int32_t yarn_orig_ctx         =     0; // YaRN original context length
     float   defrag_thold          = -1.0f; // KV cache defragmentation threshold
 
+    // DeJavu sparsity predictors
+    bool   sparsity_predictors    = false; // Enable sparsity predictors as introduced in the DeJavu paper
+
     struct cpu_params cpuparams;
     struct cpu_params cpuparams_batch;
     struct cpu_params draft_cpuparams;

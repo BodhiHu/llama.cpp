@@ -933,7 +933,11 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "MUL_MAT",
     "MUL_MAT_ID",
+    "MUL_MAT_SPARSE",
+    "AXPY",
     "OUT_PROD",
+
+    "ATTN_HEAD_SPARSE",
 
     "SCALE",
     "SET",
@@ -995,7 +999,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(GGML_OP_COUNT == 81, "GGML_OP_COUNT != 81");
+static_assert(GGML_OP_COUNT == 84, "GGML_OP_COUNT != 84");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1090,7 +1094,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(GGML_OP_COUNT == 81, "GGML_OP_COUNT != 81");
+static_assert(GGML_OP_COUNT == 84, "GGML_OP_COUNT != 84");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -2768,6 +2772,95 @@ struct ggml_tensor * ggml_mul_mat_id(
     result->src[0] = as;
     result->src[1] = b;
     result->src[2] = ids;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_mul_mat_idx(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        struct ggml_tensor  * sparse_idx,
+        float                 threshold) {
+    GGML_ASSERT(!ggml_is_transposed(a));
+
+    bool is_node = false;
+
+    if (a->grad || b->grad) {
+        is_node = true;
+    }
+
+    const int64_t ne[4] = { a->ne[1], b->ne[1], b->ne[2], b->ne[3] };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
+
+    result->op   = GGML_OP_MUL_MAT_SPARSE;
+    result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
+    result->src[0] = a;
+    result->src[1] = b;
+    result->src[2] = sparse_idx;
+    result->src[3] = NULL;
+
+    int32_t op_params[1] = { };
+    memcpy(op_params + 0, &threshold, sizeof(float));
+    ggml_set_op_params(result, op_params, sizeof(op_params));
+
+    return result;
+}
+
+struct ggml_tensor * ggml_axpy(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        struct ggml_tensor  * sparse_idx,
+        float                 threshold) {
+    GGML_ASSERT(a != NULL && b != NULL);
+    GGML_ASSERT(!ggml_is_transposed(a));
+    bool is_node = false;
+
+    if (a->grad || b->grad) {
+        is_node = true;
+    }
+
+    const int64_t ne[4] = { a->ne[0], b->ne[1], b->ne[2], b->ne[3] };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
+
+    result->op   = GGML_OP_AXPY;
+    result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
+    result->src[0] = a;
+    result->src[1] = b;
+    result->src[2] = sparse_idx;
+    result->src[3] = NULL;
+
+    int32_t op_params[1] = { };
+    memcpy(op_params + 0, &threshold, sizeof(float));
+    ggml_set_op_params(result, op_params, sizeof(op_params));
+
+    return result;
+}
+
+struct ggml_tensor * ggml_attn_head_sparse(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        float                 top) {
+    GGML_ASSERT(!ggml_is_transposed(a));
+
+    bool is_node = false;
+
+    if (a->grad || b->grad) {
+        is_node = true;
+    }
+
+    struct ggml_tensor * result = ggml_view_tensor(ctx, a);
+
+    result->op   = GGML_OP_ATTN_HEAD_SPARSE;
+    result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    int32_t op_params[1] = { };
+    memcpy(op_params + 0, &top, sizeof(float));
+    ggml_set_op_params(result, op_params, sizeof(op_params));
 
     return result;
 }
@@ -5492,7 +5585,13 @@ static void ggml_compute_backward(struct ggml_context * ctx, struct ggml_tensor 
             {
                 GGML_ABORT("fatal error"); // TODO: not implemented
             }
+        case GGML_OP_ATTN_HEAD_SPARSE:
+            {
+                GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case GGML_OP_MUL_MAT:
+        case GGML_OP_MUL_MAT_SPARSE:
+        case GGML_OP_AXPY:
             {
                 // https://cs231n.github.io/optimization-2/#staged
                 // # forward pass

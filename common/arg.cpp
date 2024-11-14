@@ -688,6 +688,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_FLASH_ATTN"));
     add_opt(common_arg(
+        {"-spi", "--sparsity-predictors"},
+        string_format("enable sparsity predictors (default: %s)", params.sparsity_predictors ? "enabled" : "disabled"),
+        [](common_params & params) {
+            params.sparsity_predictors = true;
+        }
+    ).set_env("LLAMA_ARG_SPARSITY_PREDICTORS"));
+    add_opt(common_arg(
         {"-p", "--prompt"}, "PROMPT",
         ex == LLAMA_EXAMPLE_MAIN
             ? "prompt to start generation with\nif -cnv is set, this will be used as system prompt"
