@@ -6930,9 +6930,9 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
         LLAMA_LOG_INFO("%s: f_attention_scale = %f\n", __func__, hparams.f_attention_scale);
     }
 
-    // model.hparams
     if (model.use_sparse_pred) {
         // sparse inference
+        LLAMA_LOG_INFO("%s: use_sparse_pred       = true\n", __func__);
         LLAMA_LOG_INFO("%s: sparse_pred_threshold = %.2f\n", __func__, hparams.sparse_pred_threshold);
         LLAMA_LOG_INFO("%s: sparse_heads_top      = %.2f\n", __func__, hparams.sparse_heads_top);
     }
@@ -9630,7 +9630,8 @@ static struct ggml_tensor * llm_build_ffn(
 
     if (down) {
         tmp = ffn_pred_idx
-            ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+            ? llm_build_sparse_mul_mat(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+            // ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
             : NULL;
         cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
     }
