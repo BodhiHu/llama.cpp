@@ -364,8 +364,6 @@ enum llm_kv {
     LLM_KV_TOKENIZER_PREFIX_ID,
     LLM_KV_TOKENIZER_SUFFIX_ID,
     LLM_KV_TOKENIZER_MIDDLE_ID,
-
-    LLM_KV_SPARSE_THRESHOLD,
 };
 
 static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
@@ -482,8 +480,6 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_TOKENIZER_PREFIX_ID,              "tokenizer.ggml.prefix_token_id" },
     { LLM_KV_TOKENIZER_SUFFIX_ID,              "tokenizer.ggml.suffix_token_id" },
     { LLM_KV_TOKENIZER_MIDDLE_ID,              "tokenizer.ggml.middle_token_id" },
-
-    { LLM_KV_SPARSE_THRESHOLD,                 "powerinfer.sparse_threshold" },
 };
 
 struct LLM_KV {
@@ -7547,6 +7543,11 @@ static bool llm_load_tensors(
 
                         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
 
+                        if (llama_use_sparse_attention(&model)) {
+                            layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, 1024}, 0);
+                            layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {1024, n_head}, 0);
+                        }
+
                         layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head}, 0);
                         layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_k_gqa}, 0);
                         layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0);
@@ -7557,11 +7558,6 @@ static bool llm_load_tensors(
                         layer.bk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED);
-
-                        if (llama_use_sparse_attention(&model)) {
-                            layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, 1000}, 0);
-                            layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {1000, n_head}, 0);
-                        }
 
                         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
 
@@ -9530,14 +9526,12 @@ static struct ggml_tensor * llm_build_ffn(
     }
 
     struct ggml_tensor * tmp;
-    if (ffn_pred_idx != NULL) {
-        tmp = llm_build_sparse_mul_mat(
-            ctx, up, ffn_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "up", il
-        );
-    } else {
-        tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur) : cur;
-        cb(tmp, "ffn_up", il);
-    }
+
+    tmp = (up && ffn_pred_idx) ? llm_build_sparse_mul_mat(
+        ctx, up, ffn_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "up", il
+    ) : NULL;
+    tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur, tmp) : cur;
+    cb(tmp, "ffn_up", il);
 
     if (up_b) {
         tmp = ggml_add(ctx, tmp, up_b);
@@ -9635,10 +9629,10 @@ static struct ggml_tensor * llm_build_ffn(
     }
 
     if (down) {
-        struct ggml_tensor * mm_res = ffn_pred_idx
+        tmp = ffn_pred_idx
             ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
             : NULL;
-        cur = llm_build_lora_mm(lctx, ctx, down, cur, mm_res);
+        cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
     }
 
     if (down_b) {
