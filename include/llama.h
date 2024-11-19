@@ -453,8 +453,7 @@ extern "C" {
     LLAMA_API enum llama_vocab_type   llama_vocab_type  (const struct llama_model * model);
     LLAMA_API enum llama_rope_type    llama_rope_type   (const struct llama_model * model);
 
-    LLAMA_API bool llama_use_sparse_inference(const struct llama_model * model);
-    LLAMA_API bool llama_is_sparse_pi(const struct llama_model * model);
+    LLAMA_API bool llama_use_sparse_ffn(const struct llama_model * model);
     LLAMA_API bool llama_use_sparse_attention(const struct llama_model * model);
 
     // Get the model's RoPE frequency scaling factor

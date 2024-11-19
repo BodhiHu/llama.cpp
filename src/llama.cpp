@@ -6931,10 +6931,11 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
     }
 
     if (model.use_sparse_pred) {
-        // sparse inference
         LLAMA_LOG_INFO("%s: use_sparse_pred       = true\n", __func__);
         LLAMA_LOG_INFO("%s: sparse_pred_threshold = %.2f\n", __func__, hparams.sparse_pred_threshold);
         LLAMA_LOG_INFO("%s: sparse_heads_top      = %.2f\n", __func__, hparams.sparse_heads_top);
+        LLAMA_LOG_INFO("%s: use_sparse_ffn        = %d\n",   __func__, llama_use_sparse_ffn(&model));
+        LLAMA_LOG_INFO("%s: use_sparse_attention  = %d\n",   __func__, llama_use_sparse_attention(&model));
     }
 }
 
@@ -7547,7 +7548,7 @@ static bool llm_load_tensors(
 
                         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
 
-                        if (llama_use_sparse_attention(&model)) {
+                        if (model.use_sparse_pred) {
                             layer.attn_pre_w1 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_1, "weight", i), {n_embd, 1024}, 0);
                             layer.attn_pre_w2 = create_tensor(tn(LLM_TENSOR_ATTN_PRED_2, "weight", i), {1024, n_head}, 0);
                         }
@@ -9522,7 +9523,7 @@ static struct ggml_tensor * llm_build_ffn(
 
     // build ffn sparse predictors if using sparse_pred
     ggml_tensor * ffn_pred_idx = NULL;
-    if (model.use_sparse_pred && pre_w1 != NULL && pre_w2 != NULL && pred_inpl != NULL && up != NULL) {
+    if (llama_use_sparse_ffn(&model) && pre_w1 != NULL && pre_w2 != NULL && pred_inpl != NULL && up != NULL) {
         ffn_pred_idx = ggml_mul_mat(ctx, pre_w1, pred_inpl);
         cb(ffn_pred_idx, "ffn_pre_hidden", il);
         ffn_pred_idx = ggml_mul_mat(ctx, pre_w2, ffn_pred_idx);
@@ -19948,6 +19949,11 @@ struct llama_context * llama_new_context_with_model(
 
 void llama_free(struct llama_context * ctx) {
     delete ctx;
+}
+
+bool llama_use_sparse_ffn(const struct llama_model * model) {
+    return model->use_sparse_pred
+        && model->hparams.sparse_pred_threshold < 1000000;
 }
 
 bool llama_use_sparse_attention(const struct llama_model * model) {
