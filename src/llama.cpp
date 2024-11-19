@@ -19338,6 +19338,7 @@ struct llama_model_params llama_model_default_params() {
         /*.use_mmap                    =*/ true,
         /*.use_mlock                   =*/ false,
         /*.check_tensors               =*/ false,
+        /*.use_sparse_pred             =*/ false,
     };
 
 #ifdef GGML_USE_METAL
@@ -19475,6 +19476,7 @@ struct llama_model * llama_load_model_from_file(
     ggml_time_init();
 
     llama_model * model = new llama_model;
+    model->use_sparse_pred = params.use_sparse_pred;
 
     unsigned cur_percentage = 0;
     if (params.progress_callback == NULL) {

@@ -986,6 +986,7 @@ struct llama_model_params common_model_params_to_llama(const common_params & par
     mparams.use_mmap        = params.use_mmap;
     mparams.use_mlock       = params.use_mlock;
     mparams.check_tensors   = params.check_tensors;
+    mparams.use_sparse_pred = params.sparsity_predictors;
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;
     } else {
