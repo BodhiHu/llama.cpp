@@ -1308,6 +1308,8 @@ struct ggml_threadpool {
     atomic_int GGML_CACHE_ALIGN n_barrier_passed;
     atomic_int current_chunk; // currently processing chunk during Mat_Mul, shared between all the threads.
 
+    atomic_int aic; // used for increment counter
+
     // these are atomic as an annotation for thread-sanitizer
     atomic_bool stop;         // Used for stopping the threadpool altogether
     atomic_bool pause;        // Used for pausing the threadpool or individual threads
@@ -12531,7 +12533,6 @@ static void ggml_compute_forward_mul_mat_sparse(
     const int64_t blck_1 = 16;
 
     float *ffdata = (float *)dst->src[2]->data;
-    int *gid = (int *)dst->src[3]->data;
     float *predictor_data = (float *)dst->src[2]->data;
     const size_t predictor_row_size = dst->src[2]->ne[0]*ggml_type_size(GGML_TYPE_F32)/ggml_blck_size(GGML_TYPE_F32);
 
@@ -12565,7 +12566,7 @@ static void ggml_compute_forward_mul_mat_sparse(
 
                     float *dst_col = (float *)((char *)dst->data + (i1 * nb1 + i2 * nb2 + i3 * nb3));
 
-                    if (gid[ir0] == 1 || ffdata[ir0] < threshold) {
+                    if (ffdata[ir0] < threshold) {
                         dst_col[ir0] = 0;
                         continue;
                     }
@@ -14011,7 +14012,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         /*.nth       =*/ atomic_load_explicit(&tp->n_threads_cur, memory_order_relaxed),
         /*.wsize     =*/ cplan->work_size,
         /*.wdata     =*/ cplan->work_data,
-        /*.aic       =*/ 0,
+        /*.aic       =*/ &tp->aic,
         /*.threadpool=*/ tp,
     };
 
@@ -14216,6 +14217,7 @@ static struct ggml_threadpool * ggml_threadpool_new_impl(
         threadpool->n_barrier        = 0;
         threadpool->n_barrier_passed = 0;
         threadpool->current_chunk    = 0;
+        threadpool->aic              = 0;
         threadpool->stop             = false;
         threadpool->pause            = tpp->paused;
         threadpool->abort            = false;
@@ -14297,6 +14299,7 @@ enum ggml_status ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cpl
         threadpool->cgraph           = cgraph;
         threadpool->cplan            = cplan;
         threadpool->current_chunk    = 0;
+        threadpool->aic              = 0;
         threadpool->abort            = false;
         threadpool->ec               = GGML_STATUS_SUCCESS;
     }

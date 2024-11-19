@@ -9532,10 +9532,10 @@ static struct ggml_tensor * llm_build_ffn(
 
     struct ggml_tensor * tmp;
 
-    tmp = (up && ffn_pred_idx) ? llm_build_sparse_mul_mat(
+    struct ggml_tensor * up_sparse_out = (up && ffn_pred_idx) ? llm_build_sparse_mul_mat(
         ctx, up, ffn_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "up", il
     ) : NULL;
-    tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur, tmp) : cur;
+    tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur, up_sparse_out) : cur;
     cb(tmp, "ffn_up", il);
 
     if (up_b) {
@@ -9548,15 +9548,15 @@ static struct ggml_tensor * llm_build_ffn(
         cb(tmp, "ffn_up_s", il);
     }
 
-    struct ggml_tensor * gate_out = nullptr;
+    struct ggml_tensor * gate_sparse_out = nullptr;
     if (gate) {
-        if (ffn_pred_idx != NULL) {
-            ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : tmp;
-            gate_out = llm_build_sparse_mul_mat(
-                ctx, gate, gate_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il
-            );
-            gate = gate_out;
-        }
+        // if (ffn_pred_idx != NULL) {
+        //     ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : tmp;
+        //     gate_sparse_out = llm_build_sparse_mul_mat(
+        //         ctx, gate, gate_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il
+        //     );
+        //     gate = gate_sparse_out;
+        // }
 
         switch (type_gate) {
             case LLM_FFN_SEQ:
@@ -9566,7 +9566,7 @@ static struct ggml_tensor * llm_build_ffn(
                 } break;
             case LLM_FFN_PAR:
                 {
-                    cur = llm_build_lora_mm(lctx, ctx, gate, cur);
+                    cur = llm_build_lora_mm(lctx, ctx, gate, gate_sparse_out ? tmp : cur);
                     cb(cur, "ffn_gate", il);
                 } break;
         }
@@ -9634,11 +9634,12 @@ static struct ggml_tensor * llm_build_ffn(
     }
 
     if (down) {
-        tmp = ffn_pred_idx
-            ? llm_build_sparse_mul_mat(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
-            // ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
-            : NULL;
-        cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
+        // tmp = ffn_pred_idx
+        //     ? llm_build_sparse_mul_mat(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+        //     // ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+        //     : NULL;
+        // cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
+        cur = llm_build_lora_mm(lctx, ctx, down, cur);
     }
 
     if (down_b) {
