@@ -14011,6 +14011,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         /*.nth       =*/ atomic_load_explicit(&tp->n_threads_cur, memory_order_relaxed),
         /*.wsize     =*/ cplan->work_size,
         /*.wdata     =*/ cplan->work_data,
+        /*.aic       =*/ 0,
         /*.threadpool=*/ tp,
     };
 
