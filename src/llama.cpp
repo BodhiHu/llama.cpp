@@ -9548,16 +9548,7 @@ static struct ggml_tensor * llm_build_ffn(
         cb(tmp, "ffn_up_s", il);
     }
 
-    struct ggml_tensor * gate_sparse_out = nullptr;
     if (gate) {
-        // if (ffn_pred_idx != NULL) {
-        //     ggml_tensor * gate_input = (type_gate == LLM_FFN_PAR || type_gate == LLM_FFN_SYM) ? ffn_input : tmp;
-        //     gate_sparse_out = llm_build_sparse_mul_mat(
-        //         ctx, gate, gate_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il
-        //     );
-        //     gate = gate_sparse_out;
-        // }
-
         switch (type_gate) {
             case LLM_FFN_SEQ:
                 {
@@ -9566,7 +9557,11 @@ static struct ggml_tensor * llm_build_ffn(
                 } break;
             case LLM_FFN_PAR:
                 {
-                    cur = llm_build_lora_mm(lctx, ctx, gate, gate_sparse_out ? tmp : cur);
+                    struct ggml_tensor * sparse_mm_res = ffn_pred_idx
+                        ? llm_build_sparse_mul_mat(
+                            ctx, gate, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il)
+                        : NULL;
+                    cur = llm_build_lora_mm(lctx, ctx, gate, cur, sparse_mm_res);
                     cb(cur, "ffn_gate", il);
                 } break;
         }
@@ -9634,12 +9629,11 @@ static struct ggml_tensor * llm_build_ffn(
     }
 
     if (down) {
-        // tmp = ffn_pred_idx
-        //     ? llm_build_sparse_mul_mat(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
-        //     // ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
-        //     : NULL;
-        // cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
-        cur = llm_build_lora_mm(lctx, ctx, down, cur);
+        tmp = ffn_pred_idx
+            ? llm_build_sparse_mul_mat(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+            // ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
+            : NULL;
+        cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
     }
 
     if (down_b) {
