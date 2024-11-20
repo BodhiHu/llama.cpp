@@ -116,7 +116,6 @@ struct ggml_arm_arch_features_type {
 } ggml_arm_arch_features = {-1, -1, -1, 0};
 #endif
 
-
 #if defined(_WIN32)
 
 #define WIN32_LEAN_AND_MEAN
@@ -12444,6 +12443,12 @@ static void ggml_compute_forward_mul_mat_sparse_head(
     }
 }
 
+// #define GGML_DEBUG_SPARSITY
+#ifdef GGML_DEBUG_SPARSITY
+static int sparse_active_neurons = 0;
+static int sparse_inacti_neurons = 0;
+#endif
+
 static void ggml_compute_forward_mul_mat_sparse(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
@@ -12532,10 +12537,11 @@ static void ggml_compute_forward_mul_mat_sparse(
 
     const int64_t blck_1 = 16;
 
-    float *ffdata = (float *)dst->src[2]->data;
+    float *ffdata         = (float *)dst->src[2]->data;
     float *predictor_data = (float *)dst->src[2]->data;
     const size_t predictor_row_size = dst->src[2]->ne[0]*ggml_type_size(GGML_TYPE_F32)/ggml_blck_size(GGML_TYPE_F32);
 
+    int active_neurons = 0, inactive_neurons = 0;
     while (true) {
         ir010 = atomic_fetch_add(params->aic, dr0);
         ir011 = MIN(ir010 + dr0, nr0);
@@ -12562,14 +12568,16 @@ static void ggml_compute_forward_mul_mat_sparse(
                                            (src1_cont || src1->type != vec_dot_type
                                                 ? (i11 + i12 * ne11 + i13 * ne12 * ne11) * row_size
                                                 : (i11 * nb11 + i12 * nb12 + i13 * nb13));
-                    ffdata = (float *)((char *)predictor_data + (i11      + i12*ne11 + i13*ne12*ne11)*predictor_row_size);
+                    ffdata = (float *)((char *)predictor_data + (i11 + i12*ne11 + i13*ne12*ne11)*predictor_row_size);
 
                     float *dst_col = (float *)((char *)dst->data + (i1 * nb1 + i2 * nb2 + i3 * nb3));
 
                     if (ffdata[ir0] < threshold) {
                         dst_col[ir0] = 0;
+                        inactive_neurons++;
                         continue;
                     }
+                    active_neurons++;
                     vec_dot(ne00, &dst_col[ir0], 0, src0_row + ir0 * nb01, 0, src1_col, 0, 1);
                 }
             }
@@ -12578,6 +12586,18 @@ static void ggml_compute_forward_mul_mat_sparse(
             break;
         }
     }
+
+#ifdef GGML_DEBUG_SPARSITY
+    FILE *logFile = fopen("sparsity-debug.log", "a");
+    sparse_active_neurons += active_neurons;
+    sparse_inacti_neurons += inactive_neurons;
+    fprintf(logFile,
+        "DEBUG: mul_mat_sparse: active neurons = %8d, inactive neurons = %8d, sparsity = %f\n",
+        sparse_active_neurons, sparse_inacti_neurons,
+        sparse_inacti_neurons/(sparse_active_neurons+sparse_inacti_neurons+0.0)
+    );
+    fclose(logFile);
+#endif
 }
 
 // vz = alpha * vx + vy

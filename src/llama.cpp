@@ -9644,6 +9644,7 @@ static struct ggml_tensor * llm_build_ffn(
             // ? llm_build_sparse_axpy(ctx, down, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "down", il)
             : NULL;
         cur = llm_build_lora_mm(lctx, ctx, down, cur, tmp);
+        // cur = llm_build_lora_mm(lctx, ctx, down, cur);
     }
 
     if (down_b) {
@@ -19958,7 +19959,7 @@ void llama_free(struct llama_context * ctx) {
 
 bool llama_use_sparse_ffn(const struct llama_model * model) {
     return model->use_sparse_pred
-        && model->hparams.sparse_pred_threshold < 1000000;
+        && model->hparams.sparse_pred_threshold > -1000000;
 }
 
 bool llama_use_sparse_attention(const struct llama_model * model) {
