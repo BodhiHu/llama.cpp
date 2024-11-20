@@ -9552,16 +9552,26 @@ static struct ggml_tensor * llm_build_ffn(
         switch (type_gate) {
             case LLM_FFN_SEQ:
                 {
-                    cur = llm_build_lora_mm(lctx, ctx, gate, tmp);
+                    struct ggml_tensor * gate_sparse_out = NULL;
+                    if (ffn_pred_idx != NULL) {
+                        gate_sparse_out = llm_build_sparse_mul_mat(
+                            ctx, gate, tmp, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il
+                        );
+                    }
+
+                    cur = llm_build_lora_mm(lctx, ctx, gate, tmp, gate_sparse_out);
                     cb(cur, "ffn_gate", il);
                 } break;
             case LLM_FFN_PAR:
                 {
-                    struct ggml_tensor * sparse_mm_res = ffn_pred_idx
-                        ? llm_build_sparse_mul_mat(
-                            ctx, gate, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il)
-                        : NULL;
-                    cur = llm_build_lora_mm(lctx, ctx, gate, cur, sparse_mm_res);
+                    struct ggml_tensor * gate_sparse_out = NULL;
+                    if (ffn_pred_idx != NULL) {
+                        gate_sparse_out = llm_build_sparse_mul_mat(
+                            ctx, gate, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "gate", il
+                        );
+                    }
+
+                    cur = llm_build_lora_mm(lctx, ctx, gate, cur, gate_sparse_out);
                     cb(cur, "ffn_gate", il);
                 } break;
         }
