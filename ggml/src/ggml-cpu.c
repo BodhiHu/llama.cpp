@@ -12486,6 +12486,9 @@ static void ggml_compute_forward_mul_mat_sparse(
     GGML_ASSERT(nb1 <= nb2);
     GGML_ASSERT(nb2 <= nb3);
 
+    // src1 * src0 should have same rows(neurons) as sparse predictors
+    GGML_ASSERT(ne11 == dst->src[2]->ne[1]); // row
+
     // broadcast factors
     const int64_t r2 = ne12/ne02;
     const int64_t r3 = ne13/ne03;

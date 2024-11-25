@@ -2782,7 +2782,9 @@ struct ggml_tensor * ggml_mul_mat_idx(
         struct ggml_tensor  * b,
         struct ggml_tensor  * sparse_idx,
         float                 threshold) {
+    GGML_ASSERT(ggml_can_mul_mat(a, b));
     GGML_ASSERT(!ggml_is_transposed(a));
+    GGML_ASSERT(b->ne[1] == sparse_idx->ne[1]);
 
     bool is_node = false;
 
