@@ -12353,29 +12353,22 @@ static void ggml_compute_forward_topk(
     int topK = (int) (ne00 * top);
     int top_k_indices[topK];
 
-    if (ith == 0) {
-        atomic_store(params->aic, 0);
-    }
-    ggml_barrier(params->threadpool);
-
     for (int i03 = 0; i03 < ne03; i03++) {
         for (int i02 = 0; i02 < ne02; i02++) {
-            for (int i01 = 0; i01 < ne01; i01++) {
-                if (i01 % nth == ith) {
-                    float * row = (float *)((char *) src0->data + i03*nb03 + i02*nb02 + i01*nb01);
-                    find_top_k_indices_abs(row, ne00, topK, top_k_indices);
+            for (int i01 = ith; i01 < ne01; i01 += nth) {
+                float * row = (float *)((char *) src0->data + i03*nb03 + i02*nb02 + i01*nb01);
+                find_top_k_indices_abs(row, ne00, topK, top_k_indices);
 
-                    for (int i0 = 0; i0 < ne00; i0++) {
-                        bool is_in_topk = false;
-                        for (int i = 0; i < topK; i++) {
-                            if (top_k_indices[i] == i0) {
-                                is_in_topk = true;
-                                break;
-                            }
+                for (int i0 = 0; i0 < ne00; i0++) {
+                    bool is_in_topk = false;
+                    for (int i = 0; i < topK; i++) {
+                        if (top_k_indices[i] == i0) {
+                            is_in_topk = true;
+                            break;
                         }
-                        if (!is_in_topk) {
-                            row[i0 * sizeof(float)] = 0;
-                        }
+                    }
+                    if (!is_in_topk) {
+                        row[i0 * sizeof(float)] = 0;
                     }
                 }
             }

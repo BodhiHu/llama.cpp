@@ -2441,7 +2441,7 @@ struct llama_hparams {
     );
 
     float sparse_ffn_topk = (float)atof(
-        getenv("LLAMA_SPARSE_FFN_TOPK") ? getenv("LLAMA_SPARSE_FFN_TOPK") : "0.6"
+        getenv("LLAMA_SPARSE_FFN_TOPK") ? getenv("LLAMA_SPARSE_FFN_TOPK") : "1.0"
     );
 
     bool operator!=(const llama_hparams & other) const {
@@ -9525,7 +9525,8 @@ static struct ggml_tensor * llm_build_ffn(
     const llama_model & model = lctx.model;
     const llama_hparams & hparams = model.hparams;
 
-    cur = ggml_topk_inplace(ctx, cur, hparams.sparse_ffn_topk);
+    // did not see performance improvements with topk sparsity
+    // cur = ggml_topk_inplace(ctx, cur, hparams.sparse_ffn_topk);
 
     ggml_tensor * ffn_input = cur;
 
