@@ -2440,6 +2440,10 @@ struct llama_hparams {
         getenv("LLAMA_SPARSE_HEADS_TOP") ? getenv("LLAMA_SPARSE_HEADS_TOP") : "1"
     );
 
+    float sparse_ffn_topk = (float)atof(
+        getenv("LLAMA_SPARSE_FFN_TOPK") ? getenv("LLAMA_SPARSE_FFN_TOPK") : "0.6"
+    );
+
     bool operator!=(const llama_hparams & other) const {
         if (this->vocab_only    != other.vocab_only)    return true;
         if (this->n_vocab       != other.n_vocab)       return true;
@@ -6934,6 +6938,7 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
         LLAMA_LOG_INFO("%s: use_sparse_pred       = true\n", __func__);
         LLAMA_LOG_INFO("%s: sparse_pred_threshold = %.2f\n", __func__, hparams.sparse_pred_threshold);
         LLAMA_LOG_INFO("%s: sparse_heads_top      = %.2f\n", __func__, hparams.sparse_heads_top);
+        LLAMA_LOG_INFO("%s: sparse_ffn_topk       = %.2f\n", __func__, hparams.sparse_ffn_topk);
         LLAMA_LOG_INFO("%s: use_sparse_ffn        = %d\n",   __func__, llama_use_sparse_ffn(&model));
         LLAMA_LOG_INFO("%s: use_sparse_attention  = %d\n",   __func__, llama_use_sparse_attention(&model));
     }
@@ -9519,6 +9524,9 @@ static struct ggml_tensor * llm_build_ffn(
 
     const llama_model & model = lctx.model;
     const llama_hparams & hparams = model.hparams;
+
+    cur = ggml_topk_inplace(ctx, cur, hparams.sparse_ffn_topk);
+
     ggml_tensor * ffn_input = cur;
 
     // build ffn sparse predictors if using sparse_pred

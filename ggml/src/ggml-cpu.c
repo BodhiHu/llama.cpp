@@ -12310,6 +12310,79 @@ static void ggml_compute_forward_attn_head_sparse(
     }
 }
 
+static void find_top_k_indices_abs(float *d1, int len, int topK, int *top_k_indices) {
+    for (int i = 0; i < topK; i++) {
+        top_k_indices[i] = -1;
+    }
+
+    for (int i = 0; i < len; i++) {
+        for (int j = 0; j < topK; j++) {
+            if (top_k_indices[j] == -1 || fabs(d1[i]) > fabs(d1[top_k_indices[j]])) {
+                for (int k = topK - 1; k > j; k--) {
+                    top_k_indices[k] = top_k_indices[k - 1];
+                }
+                top_k_indices[j] = i;
+                break;
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_topk(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    if (params->ith != 0) {
+        return;
+    }
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    float top;
+    memcpy(&top, dst->op_params, sizeof(float));
+
+    if (top >= 0.9 || top <= 0.1) {
+        return;
+    }
+
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    int topK = (int) (ne00 * top);
+    int top_k_indices[topK];
+
+    if (ith == 0) {
+        atomic_store(params->aic, 0);
+    }
+    ggml_barrier(params->threadpool);
+
+    for (int i03 = 0; i03 < ne03; i03++) {
+        for (int i02 = 0; i02 < ne02; i02++) {
+            for (int i01 = 0; i01 < ne01; i01++) {
+                if (i01 % nth == ith) {
+                    float * row = (float *)((char *) src0->data + i03*nb03 + i02*nb02 + i01*nb01);
+                    find_top_k_indices_abs(row, ne00, topK, top_k_indices);
+
+                    for (int i0 = 0; i0 < ne00; i0++) {
+                        bool is_in_topk = false;
+                        for (int i = 0; i < topK; i++) {
+                            if (top_k_indices[i] == i0) {
+                                is_in_topk = true;
+                                break;
+                            }
+                        }
+                        if (!is_in_topk) {
+                            row[i0 * sizeof(float)] = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void ggml_compute_forward_mul_mat_sparse_head(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
@@ -12362,10 +12435,9 @@ static void ggml_compute_forward_mul_mat_sparse_head(
         }
     }
     ggml_set_zero(dst);
-    atomic_store(params->aic, 0);
 
     if (ith == 0) {
-        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+        atomic_store(params->aic, 0);
     }
 
     ggml_barrier(params->threadpool);
@@ -12506,10 +12578,9 @@ static void ggml_compute_forward_mul_mat_sparse(
             }
         }
     }
-    atomic_store(params->aic, 0);
 
     if (ith == 0) {
-        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+        atomic_store(params->aic, 0);
     }
 
     ggml_barrier(params->threadpool);
@@ -12676,10 +12747,9 @@ static void ggml_compute_forward_mul_mat_axpy(
             }
         }
     }
-    atomic_store(params->aic, 0);
 
     if (ith == 0) {
-        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+        atomic_store(params->aic, 0);
     }
 
     ggml_barrier(params->threadpool);
@@ -12804,10 +12874,9 @@ static void ggml_compute_forward_mul_mat_axpy_q4_0(
             }
         }
     }
-    atomic_store(params->aic, 0);
 
     if (ith == 0) {
-        atomic_store_explicit(&params->threadpool->current_chunk, nth, memory_order_relaxed);
+        atomic_store(params->aic, 0);
     }
 
     ggml_barrier(params->threadpool);
@@ -12956,6 +13025,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
         case GGML_OP_ARGMAX:
             {
                 ggml_compute_forward_argmax(params, tensor);
+            } break;
+        case GGML_OP_TOPK:
+            {
+                ggml_compute_forward_topk(params, tensor);
             } break;
         case GGML_OP_COUNT_EQUAL:
             {
@@ -13363,6 +13436,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_ADD:
         case GGML_OP_ADD1:
         case GGML_OP_ACC:
+        case GGML_OP_TOPK:
             {
                 n_tasks = n_threads;
             } break;

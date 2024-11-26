@@ -999,7 +999,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(GGML_OP_COUNT == 84, "GGML_OP_COUNT != 84");
+static_assert(GGML_OP_COUNT == 85, "GGML_OP_COUNT != 85");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1094,7 +1094,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(GGML_OP_COUNT == 84, "GGML_OP_COUNT != 84");
+static_assert(GGML_OP_COUNT == 85, "GGML_OP_COUNT != 85");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -2582,6 +2582,42 @@ struct ggml_tensor * ggml_exp_inplace(
         struct ggml_context * ctx,
         struct ggml_tensor  * a) {
     return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_EXP);
+}
+
+// ggml topk
+
+static struct ggml_tensor * ggml_topk_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 top,
+        bool                  inplace) {
+    if (top > 0.9 || top < 0.1) {
+        return a;
+    }
+
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    ggml_set_op_params(result, &top, sizeof(top));
+
+    result->op     = GGML_OP_TOPK;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_topk(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 top
+        ) {
+    return ggml_topk_impl(ctx, a, top, false);
+}
+
+struct ggml_tensor * ggml_topk_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 top) {
+    return ggml_topk_impl(ctx, a, top, true);
 }
 
 // ggml_norm
@@ -5563,6 +5599,10 @@ static void ggml_compute_backward(struct ggml_context * ctx, struct ggml_tensor 
                 GGML_ABORT("fatal error"); // TODO: not implemented
             }
         case GGML_OP_NORM:
+            {
+                GGML_ABORT("fatal error"); // TODO: not implemented
+            }
+        case GGML_OP_TOPK:
             {
                 GGML_ABORT("fatal error"); // TODO: not implemented
             }

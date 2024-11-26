@@ -464,6 +464,7 @@ extern "C" {
         GGML_OP_RMS_NORM,
         GGML_OP_RMS_NORM_BACK,
         GGML_OP_GROUP_NORM,
+        GGML_OP_TOPK,
 
         GGML_OP_MUL_MAT,
         GGML_OP_MUL_MAT_SPARSE,
@@ -1074,6 +1075,16 @@ extern "C" {
     GGML_API struct ggml_tensor * ggml_exp_inplace(
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_topk(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            float                 top);
+
+    GGML_API struct ggml_tensor * ggml_topk_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            float                 top);
 
     // normalize along rows
     GGML_API struct ggml_tensor * ggml_norm(
