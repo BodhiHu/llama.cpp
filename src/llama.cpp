@@ -2352,6 +2352,16 @@ enum e_model {
     MODEL_27B,
 };
 
+enum llm_ffn_op_type {
+    LLM_FFN_UNKNOWN,
+
+    LLM_FFN_SILU,
+    LLM_FFN_GELU,
+    LLM_FFN_RELU,
+    LLM_FFN_RELU_SQR,
+    LLM_FFN_SWIGLU,
+};
+
 static const size_t kiB = 1024;
 static const size_t MiB = 1024*kiB;
 static const size_t GiB = 1024*MiB;
@@ -2432,6 +2442,8 @@ struct llama_hparams {
     enum llama_pooling_type      pooling_type            = LLAMA_POOLING_TYPE_NONE;
     enum llama_rope_type         rope_type               = LLAMA_ROPE_TYPE_NONE;
     enum llama_rope_scaling_type rope_scaling_type_train = LLAMA_ROPE_SCALING_TYPE_NONE;
+
+    enum llm_ffn_op_type         ffn_op_type             = LLM_FFN_UNKNOWN;
 
     float sparse_pred_threshold = (float)atof(
         getenv("LLAMA_SPARSE_PRED_THRESHOLD") ? getenv("LLAMA_SPARSE_PRED_THRESHOLD") : "0.0"
@@ -5338,6 +5350,15 @@ static void llm_load_hparams(
     // get general kv
     ml.get_key(LLM_KV_GENERAL_NAME, model.name, false);
 
+    auto _toLower = [](const std::string& str) -> std::string {
+        std::string lowerStr = str;
+        std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(), ::tolower);
+        return lowerStr;
+    };
+    if (_toLower(model.name).find("relu") != std::string::npos) {
+        hparams.ffn_op_type = LLM_FFN_RELU;
+    }
+
     // get hparams kv
     ml.get_key(LLM_KV_VOCAB_SIZE, hparams.n_vocab, false) || ml.get_arr_n(LLM_KV_TOKENIZER_LIST, hparams.n_vocab);
 
@@ -6865,6 +6886,7 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
         LLAMA_LOG_INFO("%s: ssm_d_state      = %u\n",     __func__, hparams.ssm_d_state);
         LLAMA_LOG_INFO("%s: ssm_dt_rank      = %u\n",     __func__, hparams.ssm_dt_rank);
         LLAMA_LOG_INFO("%s: ssm_dt_b_c_rms   = %d\n",     __func__, hparams.ssm_dt_b_c_rms);
+        LLAMA_LOG_INFO("%s: ffn_op_type      = %d\n",     __func__, hparams.ffn_op_type);
     }
 
     LLAMA_LOG_INFO("%s: model type       = %s\n",     __func__, llama_model_type_name(model.type));
@@ -9276,14 +9298,6 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
 
 using llm_build_cb = std::function<void(struct ggml_tensor * cur, const char * name, int nl)>;
 
-enum llm_ffn_op_type {
-    LLM_FFN_SILU,
-    LLM_FFN_GELU,
-    LLM_FFN_RELU,
-    LLM_FFN_RELU_SQR,
-    LLM_FFN_SWIGLU,
-};
-
 enum llm_ffn_gate_type {
     LLM_FFN_SEQ,
     LLM_FFN_PAR, // ffn_gate is parallel to ffn_up
@@ -10827,6 +10841,8 @@ struct llm_build_context {
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
 
+        enum llm_ffn_op_type ffn_op_type = hparams.ffn_op_type;
+
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
         GGML_ASSERT(n_embd_head == hparams.n_rot);
@@ -10924,6 +10940,7 @@ struct llm_build_context {
             cb(ffn_inp, "ffn_inp", il);
 
             // feed-forward network
+            enum llm_ffn_op_type ffn_op = ffn_op_type != LLM_FFN_UNKNOWN ? ffn_op_type : LLM_FFN_SILU;
             if (model.layers[il].ffn_gate_inp == nullptr) {
                 cur = llm_build_norm(ctx0, ffn_inp, hparams,
                         model.layers[il].ffn_norm, NULL,
@@ -10938,7 +10955,7 @@ struct llm_build_context {
                         model.layers[il].mlp_pre_w1,
                         model.layers[il].mlp_pre_w2,
                         ffn_inp,
-                        LLM_FFN_SILU, LLM_FFN_PAR, cb, il);
+                        ffn_op, LLM_FFN_PAR, cb, il);
                 cb(cur, "ffn_out", il);
             } else {
                 // MoE branch
@@ -18804,7 +18821,7 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
 
     // copy the KV pairs from the input file
     gguf_set_kv     (ctx_out.get(), ml.meta.get());
-    gguf_set_val_u32(ctx_out.get(), "general.quantization_version", GGML_QNT_VERSION); // TODO: use LLM_KV
+    gguf_set_val_u32(ctx_out.get(), "quangeneral.tization_version", GGML_QNT_VERSION); // TODO: use LLM_KV
     gguf_set_val_u32(ctx_out.get(), "general.file_type", ftype); // TODO: use LLM_KV
 
     // Remove split metadata
