@@ -9542,13 +9542,15 @@ static struct ggml_tensor * llm_build_ffn(
     // did not see performance improvements with topk sparsity
     // cur = ggml_topk_inplace(ctx, cur, hparams.sparse_ffn_topk);
 
-    ggml_tensor * ffn_input = cur;
-
     // build ffn sparse predictors if using sparse_pred
     ggml_tensor * ffn_pred_idx = NULL;
     if (llama_use_sparse_ffn(&model) && pre_w1 != NULL && pre_w2 != NULL && pred_inpl != NULL && up != NULL) {
         ffn_pred_idx = ggml_mul_mat(ctx, pre_w1, pred_inpl);
         cb(ffn_pred_idx, "ffn_pre_hidden", il);
+        if (type_op == LLM_FFN_RELU) {
+            ffn_pred_idx = ggml_relu(ctx, ffn_pred_idx);
+            cb(ffn_pred_idx, "ffn_pre_relu", il);
+        }
         ffn_pred_idx = ggml_mul_mat(ctx, pre_w2, ffn_pred_idx);
         cb(ffn_pred_idx, "ffn_pre_out", il);
     }
@@ -9556,7 +9558,7 @@ static struct ggml_tensor * llm_build_ffn(
     struct ggml_tensor * tmp;
 
     struct ggml_tensor * up_sparse_out = (up && ffn_pred_idx) ? llm_build_sparse_mul_mat(
-        ctx, up, ffn_input, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "up", il
+        ctx, up, cur, ffn_pred_idx, hparams.sparse_pred_threshold, cb, "up", il
     ) : NULL;
     tmp = up ? llm_build_lora_mm(lctx, ctx, up, cur, up_sparse_out) : cur;
     cb(tmp, "ffn_up", il);
@@ -19985,7 +19987,7 @@ void llama_free(struct llama_context * ctx) {
 
 bool llama_use_sparse_ffn(const struct llama_model * model) {
     return model->use_sparse_pred
-        && model->hparams.sparse_pred_threshold > -1000000;
+        && fabs(model->hparams.sparse_pred_threshold) < 1000000;
 }
 
 bool llama_use_sparse_attention(const struct llama_model * model) {
