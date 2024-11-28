@@ -167,6 +167,10 @@ option(GGML_SYCL_F16                        "ggml: use 16 bit floats for sycl ca
 set   (GGML_SYCL_TARGET "INTEL" CACHE STRING
                                             "ggml: sycl target device")
 
+# mat-mul through table lookup from TMAC
+option(GGML_TMAC                            "ggml: use TMAC"                                  OFF)
+option(GGML_TMAC_SYSLIB                     "ggml: use TMAC system library"                   OFF)
+
 # extra artifacts
 option(GGML_BUILD_TESTS    "ggml: build tests"    ${GGML_STANDALONE})
 option(GGML_BUILD_EXAMPLES "ggml: build examples" ${GGML_STANDALONE})
