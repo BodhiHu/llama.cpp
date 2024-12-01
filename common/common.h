@@ -178,7 +178,7 @@ struct common_params {
     float   yarn_beta_fast        = 32.0f; // YaRN low correction dim
     float   yarn_beta_slow        =  1.0f; // YaRN high correction dim
     int32_t yarn_orig_ctx         =     0; // YaRN original context length
-    float   defrag_thold          = -1.0f; // KV cache defragmentation threshold
+    float   defrag_thold          =  0.1f; // KV cache defragmentation threshold
 
     // DeJavu sparsity predictors
     bool   sparsity_predictors    = false; // Enable sparsity predictors as introduced in the DeJavu paper
