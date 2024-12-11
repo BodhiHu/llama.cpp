@@ -169,6 +169,30 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
                 # Raspberry Pi 3, 4, Zero 2 (32-bit)
                 list(APPEND ARCH_FLAGS -mno-unaligned-access)
             endif()
+            if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+                message(STATUS "Linux aarch64 detected")
+
+                set(MARCH_FLAGS "-march=armv8.2a+fp16")
+                set(OTHER_FLAGS "")
+
+                check_cxx_source_compiles("#include <arm_neon.h>\nint main() { int8x16_t _a, _b; int32x4_t _s = vdotq_s32(_s, _a, _b); return 0; }" GGML_COMPILER_SUPPORT_DOTPROD)
+                if (GGML_COMPILER_SUPPORT_DOTPROD)
+                    set(MARCH_FLAGS "${MARCH_FLAGS}+dotprod")
+                    list(APPEND ARCH_DEFINITIONS __ARM_FEATURE_DOTPROD)
+
+                    message(STATUS "ARM feature DOTPROD enabled")
+                endif ()
+
+                check_cxx_source_compiles("#include <arm_neon.h>\nint main() { int8x16_t _a, _b; int32x4_t _s = vmlaq_f32(_s, _a, _b); return 0; }" GGML_COMPILER_SUPPORT_MATMUL_INT8)
+                if (GGML_COMPILER_SUPPORT_MATMUL_INT8)
+                    set(OTHER_FLAGS "${OTHER_FLAGS} -fvectorize -ffp-model=fast -fno-finite-math-only")
+                    list(APPEND ARCH_DEFINITIONS __ARM_FEATURE_MATMUL_INT8)
+
+                    message(STATUS "ARM feature MATMUL_INT8 enabled")
+                endif()
+
+                list(APPEND ARCH_FLAGS "${MARCH_FLAGS} ${OTHER_FLAGS}")
+            endif()
             if (GGML_SVE)
                 list(APPEND ARCH_FLAGS -march=armv8.6-a+sve)
             endif()

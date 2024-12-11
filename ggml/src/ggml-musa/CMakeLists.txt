@@ -50,6 +50,11 @@ if (MUSAToolkit_FOUND)
     set_source_files_properties(${GGML_SOURCES_MUSA} PROPERTIES LANGUAGE CXX)
     foreach(SOURCE ${GGML_SOURCES_MUSA})
         set(COMPILE_FLAGS "-x musa -mtgpu")
+
+        if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+            set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=armv8.2-a+fp16 -mcpu=cortex-a78 -fvectorize -ffp-model=fast -fno-finite-math-only -mfpu=neon")
+        endif ()
+
         foreach(ARCH ${MUSA_ARCHITECTURES})
             set(COMPILE_FLAGS "${COMPILE_FLAGS} --cuda-gpu-arch=mp_${ARCH}")
         endforeach()
