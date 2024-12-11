@@ -52,7 +52,7 @@ if (MUSAToolkit_FOUND)
         set(COMPILE_FLAGS "-x musa -mtgpu")
 
         if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
-            set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=armv8.2-a+fp16 -mcpu=cortex-a78 -fvectorize -ffp-model=fast -fno-finite-math-only -mfpu=neon")
+            set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=armv8.2-a+fp16 -mcpu=cortex-a78 -mfpu=neon -fvectorize -ffp-model=fast -fno-finite-math-only")
         endif ()
 
         foreach(ARCH ${MUSA_ARCHITECTURES})
