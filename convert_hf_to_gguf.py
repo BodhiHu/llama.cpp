@@ -257,7 +257,7 @@ class Model:
             self.gguf_writer.add_sliding_window(sliding_window)
             logger.info(f"gguf: sliding_window = {sliding_window}")
 
-        if (expert_weights_scale := self.find_hparam(["routed_scaling_factor", "scale_factor"])) is not None:
+        if (expert_weights_scale := self.find_hparam(["routed_scaling_factor", "scale_factor"], optional=True)) is not None:
             self.gguf_writer.add_expert_weights_scale(expert_weights_scale)
             logger.info(f"gguf: expert_weights_scale = {expert_weights_scale}")
 

@@ -10867,7 +10867,6 @@ struct llm_build_context {
             cb(ffn_inp, "ffn_inp", il);
 
             // feed-forward network
-            GGML_ASSERT(model.layers[il].ffn_gate_inp);
             if (model.layers[il].ffn_gate_inp == nullptr) {
                 cur = llm_build_norm(ctx0, ffn_inp, hparams,
                         model.layers[il].ffn_norm, NULL,
